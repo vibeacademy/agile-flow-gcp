@@ -144,6 +144,26 @@ This configures:
 - Initial backlog from PRD features
 - First tickets in Ready column
 
+#### Phase 5: Scope Lock (Recommended)
+
+```bash
+# Formally lock MVP scope before development begins
+> /lock-scope
+```
+
+This creates `docs/SCOPE-LOCK.md` and signals that:
+- MVP feature list is fixed
+- All features have acceptance criteria
+- Major decisions are resolved
+- Changes require formal trade-off discussion
+
+**Why lock scope?** Scope lock is the handoff point where:
+- Marketing can start planning campaigns against a known target
+- Engineering can commit to timelines
+- Stakeholders are aligned on what "done" means
+
+See [Scope Lock](#scope-lock) below for detailed criteria.
+
 ## After Bootstrap
 
 Once bootstrap is complete, use the standard workflow:
@@ -270,6 +290,38 @@ Humans remain in control of:
 - Conflict resolution
 
 Agents provide recommendations; humans make decisions.
+
+### Scope Lock
+
+Scope lock is a formal checkpoint that signals MVP scope is finalized and development can begin with confidence.
+
+**Criteria for Scope Lock:**
+
+| Criteria | Locked | Not Locked |
+|----------|--------|------------|
+| Feature list | Fixed: "We're building A, B, C" | Fluid: "Maybe C or D" |
+| Acceptance criteria | Each feature has testable conditions | Features are vague ideas |
+| Open questions | Major decisions resolved | "TBD" items remain |
+| Change process | Adding scope requires trade-offs | "Let's add that too" |
+| Timeline | Dates based on defined scope | Dates slide with scope |
+
+**When to Lock:**
+- After PRD is complete (`/bootstrap-product`)
+- After technical feasibility confirmed (`/bootstrap-architecture`)
+- After backlog has tickets for all MVP features (`/groom-backlog`)
+- Before significant development begins
+
+**Why Lock Matters:**
+- **Marketing** can plan campaigns against a known target
+- **Engineering** can commit to realistic timelines
+- **Stakeholders** are aligned on what "done" means
+- **Scope creep** becomes visible (requires unlocking)
+
+**Run `/lock-scope` to:**
+1. Verify all lock criteria are met
+2. Document the locked scope
+3. Create `docs/SCOPE-LOCK.md` as the contract
+4. Trigger `/sync-gtm` Checkpoint 2 (Scope Lock)
 
 ### Product-Marketing Alignment
 

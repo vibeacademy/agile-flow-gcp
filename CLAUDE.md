@@ -285,6 +285,7 @@ A ticket is done when:
 | `/sprint-status` | Quick status overview of board and sprint |
 | `/test-feature` | Create test plan and validate a feature |
 | `/architect-review` | Get architectural guidance or design review |
+| `/lock-scope` | Formally lock MVP scope before development |
 | `/plan-campaign` | Design a marketing campaign with channels and budget |
 | `/design-referral-program` | Create a viral referral or ambassador program |
 | `/plan-ugc-campaign` | Design a user-generated content campaign |
