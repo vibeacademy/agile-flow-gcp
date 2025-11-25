@@ -243,6 +243,72 @@ You'll need:
 - Permission to configure branch protection
 - A GitHub personal access token (for MCP)
 
+#### Creating a GitHub Personal Access Token
+
+1. Go to **GitHub Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens**
+   - Direct link: https://github.com/settings/tokens?type=beta
+
+2. Click **Generate new token**
+
+3. Configure the token:
+   - **Token name:** `agile-flow` (or your project name)
+   - **Expiration:** Choose based on your security requirements (90 days recommended)
+   - **Repository access:** Select "Only select repositories" and choose your project repo
+
+4. Set **Repository permissions:**
+   | Permission | Access Level | Why Needed |
+   |------------|--------------|------------|
+   | Contents | Read and write | Create branches, push commits |
+   | Issues | Read and write | Create/update tickets |
+   | Pull requests | Read and write | Create PRs, add comments |
+   | Projects | Read and write | Manage project board columns |
+   | Metadata | Read-only | Required for API access |
+
+5. Click **Generate token** and copy the token immediately (you won't see it again)
+
+#### Configuring the Token
+
+**Option 1: Environment variable (recommended)**
+
+Add to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
+```bash
+export GITHUB_TOKEN="github_pat_xxxxxxxxxxxx"
+```
+
+Then reload your shell:
+```bash
+source ~/.zshrc  # or ~/.bashrc
+```
+
+**Option 2: Claude Code settings**
+
+Create or edit `.claude/settings.local.json` in your project:
+```json
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@anthropic/mcp-github"],
+      "env": {
+        "GITHUB_TOKEN": "github_pat_xxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+**Important:** Add `.claude/settings.local.json` to `.gitignore` to avoid committing your token.
+
+#### Verifying the Token
+
+After configuring, start Claude Code and run a simple test:
+```bash
+claude
+> Check if GitHub MCP is working by listing my repositories
+```
+
+If configured correctly, the agent should be able to access your GitHub repositories.
+
 ## Customization
 
 ### Adding Project-Specific Context
