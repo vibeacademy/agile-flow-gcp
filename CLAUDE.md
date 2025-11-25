@@ -285,6 +285,12 @@ A ticket is done when:
 | `/sprint-status` | Quick status overview of board and sprint |
 | `/test-feature` | Create test plan and validate a feature |
 | `/architect-review` | Get architectural guidance or design review |
+| `/plan-campaign` | Design a marketing campaign with channels and budget |
+| `/design-referral-program` | Create a viral referral or ambassador program |
+| `/plan-ugc-campaign` | Design a user-generated content campaign |
+| `/plan-local-marketing` | Create a local/regional marketing strategy |
+| `/audit-marketing` | Audit marketing efforts and get recommendations |
+| `/sync-gtm` | Checkpoint sync between Product and Marketing |
 
 ## Workflow Quick Reference
 

@@ -2,90 +2,285 @@
 description: "Phase 1: Create Product Requirements Document and Roadmap"
 ---
 
-Launch the agile-product-manager agent to define the product vision, requirements, and initial roadmap.
-
 ## Bootstrap Phase 1: Product Definition
 
-This is the first phase of project bootstrap. The Product Manager will guide you through defining:
+Guide the user through a structured questionnaire to define their product. Ask questions ONE AT A TIME and wait for responses before proceeding.
 
-1. **Product Vision** - What problem are we solving? For whom?
-2. **Target Audience** - Who are our users? What are their needs?
-3. **Core Features** - What must the product do? What's the MVP?
-4. **Success Metrics** - How do we measure success?
-5. **Competitive Landscape** - Who else solves this problem?
-6. **Initial Roadmap** - What are the phases and milestones?
+## Instructions for the Agent
 
-## Interview Process
+**IMPORTANT: Follow this exact question sequence. Do not skip or combine questions.**
 
-The Product Manager will ask you questions to understand your product:
+For multiple-choice questions, present numbered options and ask the user to respond with the number OR type their own answer.
 
-### Vision & Problem
-- What problem does this product solve?
-- Why does this problem matter?
-- What's your vision for the solution?
+---
 
-### Target Users
-- Who is your primary user?
-- What are their pain points?
-- How do they currently solve this problem?
+## Questionnaire
 
-### Features & Scope
-- What are the must-have features for launch?
-- What features can wait for later?
-- What will you explicitly NOT build?
+### Section 1: Product Type & Category
 
-### Success & Metrics
-- What does success look like?
-- How will you measure adoption?
-- What are your business goals?
+**Question 1.1**
+```
+What type of product are you building?
 
-### Timeline & Phases
-- When do you need to launch?
-- What are the major milestones?
-- What are the phases of development?
+1. Web application
+2. Mobile app (iOS/Android)
+3. Desktop application
+4. API/Backend service
+5. CLI tool
+6. Library/SDK
+7. Hardware/IoT
+8. Other (please describe)
 
-## Outputs
+Enter a number (1-8) or describe your product type:
+```
 
-This phase creates two documents:
+**Question 1.2**
+```
+What category best describes your product?
+
+1. B2B SaaS (business software)
+2. B2C Consumer app
+3. Developer tools
+4. E-commerce/Marketplace
+5. Content/Media platform
+6. Productivity/Collaboration
+7. Finance/Fintech
+8. Healthcare/Wellness
+9. Education/EdTech
+10. Other (please describe)
+
+Enter a number (1-10) or describe your category:
+```
+
+### Section 2: Problem & Vision
+
+**Question 2.1**
+```
+Describe the problem your product solves in 1-3 sentences:
+```
+
+**Question 2.2**
+```
+Who experiences this problem most acutely?
+
+1. Individual consumers
+2. Small businesses (1-50 employees)
+3. Mid-market companies (50-500 employees)
+4. Enterprise organizations (500+ employees)
+5. Developers/Technical users
+6. Specific profession (please specify)
+7. Other (please describe)
+
+Enter a number (1-7) or describe your target:
+```
+
+**Question 2.3**
+```
+How do people currently solve this problem today?
+
+1. Manual processes (spreadsheets, paper, etc.)
+2. Existing software that's inadequate
+3. Competitor products
+4. They don't - they just live with the pain
+5. Cobbled-together workarounds
+6. Other (please describe)
+
+Enter a number (1-6) or describe current solutions:
+```
+
+### Section 3: Target Users
+
+**Question 3.1**
+```
+Describe your primary user in one sentence (role, context, goal):
+
+Example: "A small business owner who needs to track inventory without complex software"
+```
+
+**Question 3.2**
+```
+What is the #1 pain point for this user?
+```
+
+**Question 3.3**
+```
+Will there be secondary user types?
+
+1. No, just one user type
+2. Yes, there's an admin/manager role
+3. Yes, there are multiple distinct user types
+4. Yes (please describe)
+
+Enter a number (1-4) or describe:
+```
+
+### Section 4: Core Features (MVP)
+
+**Question 4.1**
+```
+List 3-5 features that MUST be in your MVP (minimum viable product).
+
+Be specific. Example:
+- User authentication with email/password
+- Dashboard showing key metrics
+- Ability to create and edit projects
+
+Your MVP features:
+```
+
+**Question 4.2**
+```
+What features are explicitly OUT OF SCOPE for v1?
+
+(This is just as important as what's in scope)
+```
+
+**Question 4.3**
+```
+What's the ONE thing your product must do exceptionally well?
+```
+
+### Section 5: Success Metrics
+
+**Question 5.1**
+```
+How will you measure success? Select your primary metric:
+
+1. User signups/registrations
+2. Daily/Monthly active users
+3. Revenue/MRR
+4. User retention rate
+5. Task completion rate
+6. Time saved for users
+7. Customer satisfaction (NPS/CSAT)
+8. Other (please describe)
+
+Enter a number (1-8) or describe your metric:
+```
+
+**Question 5.2**
+```
+What's your target for this metric in the first 3 months post-launch?
+
+Example: "500 registered users" or "$5k MRR"
+```
+
+### Section 6: Competitive Landscape
+
+**Question 6.1**
+```
+Who are your main competitors or alternatives? (List 1-3)
+
+If none, write "No direct competitors"
+```
+
+**Question 6.2**
+```
+What's your key differentiator? Why would someone choose you over alternatives?
+```
+
+### Section 7: Timeline & Constraints
+
+**Question 7.1**
+```
+When do you need to launch?
+
+1. ASAP (1-2 weeks)
+2. 1 month
+3. 2-3 months
+4. 3-6 months
+5. 6+ months
+6. No fixed deadline
+
+Enter a number (1-6):
+```
+
+**Question 7.2**
+```
+What are your biggest constraints?
+
+1. Time - need to launch quickly
+2. Budget - limited resources
+3. Technical - specific tech requirements
+4. Regulatory - compliance requirements
+5. Team - limited expertise in certain areas
+6. Multiple constraints (please list)
+7. No major constraints
+
+Enter a number (1-7) or describe:
+```
+
+**Question 7.3**
+```
+Any technical requirements or preferences?
+
+1. Must use specific tech stack (please specify)
+2. Must integrate with existing systems (please specify)
+3. Must meet specific compliance (SOC2, HIPAA, etc.)
+4. No specific requirements
+5. Other (please describe)
+
+Enter a number (1-5) or describe:
+```
+
+---
+
+## After Collecting All Responses
+
+Once all questions are answered, synthesize the responses into two documents:
+
+1. **docs/PRODUCT-REQUIREMENTS.md** - Structured PRD
+2. **docs/PRODUCT-ROADMAP.md** - Phased roadmap
+
+Present a summary to the user and confirm before writing files.
+
+## Output Templates
+
+Use these templates when generating the documents:
 
 ### docs/PRODUCT-REQUIREMENTS.md
 ```markdown
 # Product Requirements Document
 
-## Vision
-[Product vision statement]
+## Product Overview
+- **Type**: [From Q1.1]
+- **Category**: [From Q1.2]
 
-## Problem Statement
-[What problem we're solving]
+## Vision & Problem Statement
+[Synthesized from Q2.1]
 
 ## Target Audience
-[Who we're building for]
+- **Primary**: [From Q2.2]
+- **User Description**: [From Q3.1]
+- **Key Pain Point**: [From Q3.2]
+- **Secondary Users**: [From Q3.3]
 
-### User Personas
-[Detailed user descriptions]
+### Current Solutions
+[From Q2.3]
 
 ## Features
 
 ### MVP (Must Have)
-- Feature 1
-- Feature 2
+[From Q4.1]
 
-### Phase 2 (Should Have)
-- Feature 3
-- Feature 4
+### Out of Scope (v1)
+[From Q4.2]
 
-### Future (Nice to Have)
-- Feature 5
+### Core Value Proposition
+[From Q4.3]
 
 ## Success Metrics
-- Metric 1: Target
-- Metric 2: Target
+- **Primary Metric**: [From Q5.1]
+- **3-Month Target**: [From Q5.2]
 
 ## Competitive Analysis
-[How we compare to alternatives]
+- **Competitors**: [From Q6.1]
+- **Differentiator**: [From Q6.2]
 
-## Constraints & Assumptions
-[Known limitations]
+## Constraints & Requirements
+- **Timeline**: [From Q7.1]
+- **Constraints**: [From Q7.2]
+- **Technical Requirements**: [From Q7.3]
 ```
 
 ### docs/PRODUCT-ROADMAP.md
@@ -93,52 +288,33 @@ This phase creates two documents:
 # Product Roadmap
 
 ## Overview
-[High-level timeline]
+[Timeline summary based on Q7.1]
 
-## Phases
+## Phase 1: MVP
+- **Target**: [Based on Q7.1]
+- **Goal**: Deliver core value proposition
+- **Features**: [From Q4.1]
+- **Success Criteria**: [From Q5.1 + Q5.2]
 
-### Phase 1: MVP
-- Target: [Date]
-- Goal: [What we're achieving]
-- Features: [List]
-- Exit Criteria: [How we know it's done]
+## Phase 2: Iteration
+- **Target**: Post-MVP
+- **Goal**: Expand based on feedback
+- **Features**: TBD based on user feedback
 
-### Phase 2: [Name]
-- Target: [Date]
-- Goal: [What we're achieving]
-- Features: [List]
-
-## Milestones
-[Key dates and deliverables]
-
-## Dependencies & Risks
-[What could block us]
+## Constraints & Risks
+[From Q7.2 and Q7.3]
 ```
+
+## Tips for Users
+
+1. **Be specific** - Vague answers lead to vague products
+2. **Prioritize ruthlessly** - Everything can't be MVP
+3. **Define "not building"** - Scope clarity prevents scope creep
+4. **Set measurable goals** - "Better UX" isn't measurable
 
 ## What Happens Next
 
-After Phase 1 is complete:
-- All agents gain product context (vision, features, users)
-- Phase 2 (Technical Architecture) can begin
-- System Architect will reference the PRD for technical decisions
-
-## Tips for Success
-
-1. **Be specific** - Vague requirements lead to vague products
-2. **Prioritize ruthlessly** - Everything can't be MVP
-3. **Define "not building"** - What's explicitly out of scope?
-4. **Set measurable goals** - "Better UX" isn't measurable
-5. **Be realistic on timeline** - Padding is wisdom, not weakness
-
-## Running This Command
-
-Simply type `/bootstrap-product` and follow the Product Manager's questions.
-
-The agent will:
-1. Interview you about your product
-2. Synthesize your answers into structured documents
-3. Create docs/PRODUCT-REQUIREMENTS.md
-4. Create docs/PRODUCT-ROADMAP.md
-5. Summarize what was captured
-
-When complete, run `./bootstrap.sh` to continue to Phase 2.
+After completing this questionnaire:
+1. Review the generated PRD and Roadmap
+2. Run `/bootstrap-architecture` for Phase 2 (Technical Architecture)
+3. The System Architect will reference your PRD for technical decisions

@@ -14,6 +14,7 @@ Agile Flow provides a team of AI agents that work together to manage your softwa
 | PR Reviewer | Code review, quality gate |
 | Quality Engineer | Test planning, validation |
 | System Architect | Design guidance, patterns |
+| Growth Marketing Strategist | Campaigns, GTM, user acquisition |
 
 The agents hand off work to each other through a structured workflow, with humans making final merge decisions.
 
@@ -161,6 +162,14 @@ Once bootstrap is complete, use the standard workflow:
 /evaluate-feature       # Assess feature requests
 /release-decision       # Go/no-go for releases
 /architect-review       # Design guidance
+
+# Marketing & GTM
+/sync-gtm               # Product-Marketing alignment checkpoints
+/plan-campaign          # Design marketing campaigns
+/design-referral-program # Create viral/referral programs
+/plan-ugc-campaign      # User-generated content campaigns
+/plan-local-marketing   # Local/regional marketing
+/audit-marketing        # Audit and optimize marketing
 ```
 
 ## Project Structure
@@ -174,7 +183,8 @@ your-project/
 │   │   ├── github-ticket-worker.md
 │   │   ├── pr-reviewer-merger.md
 │   │   ├── quality-engineer.md
-│   │   └── system-architect.md
+│   │   ├── system-architect.md
+│   │   └── growth-marketing-strategist.md
 │   ├── commands/               # Slash commands
 │   │   ├── bootstrap-product.md
 │   │   ├── bootstrap-architecture.md
@@ -260,6 +270,21 @@ Humans remain in control of:
 - Conflict resolution
 
 Agents provide recommendations; humans make decisions.
+
+### Product-Marketing Alignment
+
+Marketing often gets "thrown over the wall" after product is built. Agile Flow solves this with **GTM checkpoints** that bring marketing into the loop at key phases:
+
+| Checkpoint | When | Purpose |
+|------------|------|---------|
+| PRD Review | After PRD draft | Marketing validates personas & positioning |
+| Scope Lock | MVP finalized | Marketing gets briefed, starts GTM planning |
+| Dev Midpoint | ~50% complete | Marketing finalizes assets |
+| Pre-Launch | Feature complete | Final alignment, soft launch |
+| Launch | Go-live | Execute and monitor |
+| Post-Launch | 1-2 weeks after | Analyze, iterate, feedback loop |
+
+Run `/sync-gtm` at each phase to ensure alignment. Each checkpoint produces an artifact in `docs/gtm/` that serves as the contract between Product and Marketing.
 
 ## Troubleshooting
 
