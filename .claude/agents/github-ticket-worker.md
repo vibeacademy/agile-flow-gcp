@@ -99,7 +99,7 @@ See .claude/README.md for bot account setup instructions.
 
 **THREE-STAGE WORKFLOW:**
 1. **github-ticket-worker** (YOU) implements the ticket and creates the PR
-2. **pr-reviewer-merger** reviews and verifies the code meets quality standards
+2. **pr-reviewer** reviews and verifies the code meets quality standards
 3. **Human reviewer** performs final review and merge
 
 **YOUR Workflow Steps:**
@@ -112,7 +112,7 @@ See .claude/README.md for bot account setup instructions.
 7. **Push Branch**: `git push origin feature/issue-{number}-description`
 8. **Create PR**: Link to issue, provide detailed description
 9. **Move to In Review**: Update project board status to "In Review"
-10. **Your work is done**: pr-reviewer-merger agent will review, then human will merge
+10. **Your work is done**: pr-reviewer agent will review, then human will merge
 
 **YOU CANNOT:**
 - Merge pull requests (only human does this)

@@ -2,7 +2,7 @@
 description: Review pull requests in the In Review column
 ---
 
-Launch the pr-reviewer-merger agent to review pull requests and provide go/no-go recommendations.
+Launch the pr-reviewer agent to review pull requests and provide go/no-go recommendations.
 
 ## What This Command Does
 
@@ -46,7 +46,7 @@ Or to review a specific PR:
 
 ## Important Notes
 
-**The pr-reviewer-merger agent CANNOT:**
+**The pr-reviewer agent CANNOT:**
 - Merge pull requests (human does this)
 - Move tickets to Done (human does this after merge)
 - Approve PRs on GitHub (provides recommendation only)

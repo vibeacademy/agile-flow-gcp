@@ -201,7 +201,7 @@ your-project/
 │   │   ├── agile-product-manager.md
 │   │   ├── agile-backlog-prioritizer.md
 │   │   ├── github-ticket-worker.md
-│   │   ├── pr-reviewer-merger.md
+│   │   ├── pr-reviewer.md
 │   │   ├── quality-engineer.md
 │   │   ├── system-architect.md
 │   │   └── growth-marketing-strategist.md

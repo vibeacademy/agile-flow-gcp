@@ -17,7 +17,7 @@ This is a template project for bootstrapping Claude-based coding projects with a
 
 The agent workflow depends on this:
 1. `github-ticket-worker` creates feature branches and PRs
-2. `pr-reviewer-merger` reviews PRs (cannot merge - human does)
+2. `pr-reviewer` reviews PRs (cannot merge - human does)
 3. Human performs final review and merge
 
 **Without trunk-based development, the agent handoff workflow breaks.**

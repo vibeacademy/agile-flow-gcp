@@ -8,7 +8,7 @@ This directory contains agent policies, slash commands, and settings for Claude 
 .claude/
 ├── agents/                    # Agent policy definitions
 │   ├── github-ticket-worker.md
-│   ├── pr-reviewer-merger.md
+│   ├── pr-reviewer.md
 │   ├── agile-backlog-prioritizer.md
 │   └── ...
 ├── commands/                  # Slash command definitions
@@ -38,7 +38,7 @@ cp .claude/settings.template.json .claude/settings.local.json
 The template intentionally **EXCLUDES** `mcp__github__merge_pull_request` permission. This enforces the trunk-based development workflow where:
 
 - Agents can **create** PRs (github-ticket-worker)
-- Agents can **review** PRs (pr-reviewer-merger)
+- Agents can **review** PRs (pr-reviewer)
 - Only **humans** can **merge** PRs
 
 This separation ensures quality control and prevents accidental merges.
@@ -178,7 +178,7 @@ Implements tickets from the Ready column. Creates feature branches and PRs.
 - Cannot merge PRs
 - Cannot move tickets to Done
 
-### pr-reviewer-merger
+### pr-reviewer
 
 Reviews PRs and provides decision support for human reviewers.
 

@@ -40,7 +40,7 @@ The `Project Context` section is populated with:
 - Testing requirements
 - Build and verification commands
 
-### 3. PR Reviewer (.claude/agents/pr-reviewer-merger.md)
+### 3. PR Reviewer (.claude/agents/pr-reviewer.md)
 
 The `Project Context` section is populated with:
 - What to check during code review
