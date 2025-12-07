@@ -1,0 +1,35 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+.idea/
+.vscode/
+*.sublime-*
+
+# Claude Code local settings (contains user-specific permissions)
+.claude/settings.local.json
+
+# Environment and secrets
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+secrets.json
+
+# Node.js (if applicable)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build outputs (if applicable)
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+logs/
