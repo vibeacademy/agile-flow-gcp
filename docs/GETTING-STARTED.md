@@ -19,8 +19,8 @@ Before you begin, ensure you have:
 mkdir my-project
 cd my-project
 
-# Clone the Agile Flow template
-git clone https://github.com/vibeacademy/agile-flow.git .
+# Clone the Agile Flow template (replace with your fork URL)
+git clone https://github.com/your-org/agile-flow.git .
 
 # Remove the template's git history and start fresh
 rm -rf .git

@@ -1,10 +1,16 @@
 #!/bin/bash
 
 # Bot Permissions Verification Script
-# Part of Epic #1 - Bot Account Infrastructure Setup (Issue #5)
 #
-# Verifies that va-worker and va-reviewer have correct permissions
+# Verifies that worker and reviewer bot accounts have correct permissions
 # and are properly restricted from destructive actions.
+#
+# Configuration: Set these variables for your project:
+#   REPO - Your GitHub org/repo (e.g., "your-org/your-repo")
+#   WORKER_BOT - Your worker bot account name (default: {org}-worker)
+#   REVIEWER_BOT - Your reviewer bot account name (default: {org}-reviewer)
+#
+# See .claude/README.md for bot account setup instructions.
 
 # Don't use set -e as we handle errors manually in tests
 
@@ -15,9 +21,24 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Configuration
-REPO="vibeacademy/agile-flow"
+# Configuration - CUSTOMIZE THESE FOR YOUR PROJECT
+# If not set, try to detect from git remote
+REPO="${REPO:-}"
+if [ -z "$REPO" ]; then
+  REPO=$(git remote get-url origin 2>/dev/null | sed -E 's|.*github.com[:/]||' | sed 's/.git$//')
+fi
+if [ -z "$REPO" ]; then
+  echo "Error: Could not determine repository. Set REPO environment variable."
+  exit 1
+fi
+
 MAIN_BRANCH="main"
+
+# Bot account names - customize for your organization
+# Default pattern: {org}-worker and {org}-reviewer
+ORG=$(echo "$REPO" | cut -d'/' -f1)
+WORKER_BOT="${WORKER_BOT:-${ORG}-worker}"
+REVIEWER_BOT="${REVIEWER_BOT:-${ORG}-reviewer}"
 
 # Counters
 PASS=0
@@ -89,113 +110,113 @@ check_account_exists() {
 # Tests
 # =============================================================================
 
-test_va_worker_exists() {
-    info "Checking if va-worker account exists..."
-    if check_account_exists "va-worker"; then
-        pass "va-worker account exists in gh CLI"
+test_worker_exists() {
+    info "Checking if $WORKER_BOT account exists..."
+    if check_account_exists "$WORKER_BOT"; then
+        pass "$WORKER_BOT account exists in gh CLI"
     else
-        fail "va-worker account not found in gh CLI"
+        fail "$WORKER_BOT account not found in gh CLI"
     fi
 }
 
-test_va_reviewer_exists() {
-    info "Checking if va-reviewer account exists..."
-    if check_account_exists "va-reviewer"; then
-        pass "va-reviewer account exists in gh CLI"
+test_reviewer_exists() {
+    info "Checking if $REVIEWER_BOT account exists..."
+    if check_account_exists "$REVIEWER_BOT"; then
+        pass "$REVIEWER_BOT account exists in gh CLI"
     else
-        fail "va-reviewer account not found in gh CLI"
+        fail "$REVIEWER_BOT account not found in gh CLI"
     fi
 }
 
-test_va_worker_scopes() {
-    info "Checking va-worker PAT scopes..."
+test_worker_scopes() {
+    info "Checking $WORKER_BOT PAT scopes..."
 
     local status=$(gh auth status 2>&1)
-    local va_worker_section=$(echo "$status" | grep -A5 "account va-worker")
+    local worker_section=$(echo "$status" | grep -A5 "account $WORKER_BOT")
 
-    if echo "$va_worker_section" | grep -q "repo" && \
-       echo "$va_worker_section" | grep -q "read:org" && \
-       echo "$va_worker_section" | grep -q "project"; then
-        pass "va-worker has required scopes (repo, read:org, project)"
+    if echo "$worker_section" | grep -q "repo" && \
+       echo "$worker_section" | grep -q "read:org" && \
+       echo "$worker_section" | grep -q "project"; then
+        pass "$WORKER_BOT has required scopes (repo, read:org, project)"
     else
-        fail "va-worker missing required scopes"
-        echo "  Current scopes: $(echo "$va_worker_section" | grep "Token scopes")"
+        fail "$WORKER_BOT missing required scopes"
+        echo "  Current scopes: $(echo "$worker_section" | grep "Token scopes")"
     fi
 }
 
-test_va_reviewer_scopes() {
-    info "Checking va-reviewer PAT scopes..."
+test_reviewer_scopes() {
+    info "Checking $REVIEWER_BOT PAT scopes..."
 
     local status=$(gh auth status 2>&1)
-    local va_reviewer_section=$(echo "$status" | grep -A5 "account va-reviewer")
+    local reviewer_section=$(echo "$status" | grep -A5 "account $REVIEWER_BOT")
 
-    if echo "$va_reviewer_section" | grep -q "repo" && \
-       echo "$va_reviewer_section" | grep -q "read:org" && \
-       echo "$va_reviewer_section" | grep -q "project"; then
-        pass "va-reviewer has required scopes (repo, read:org, project)"
+    if echo "$reviewer_section" | grep -q "repo" && \
+       echo "$reviewer_section" | grep -q "read:org" && \
+       echo "$reviewer_section" | grep -q "project"; then
+        pass "$REVIEWER_BOT has required scopes (repo, read:org, project)"
     else
-        fail "va-reviewer missing required scopes"
-        echo "  Current scopes: $(echo "$va_reviewer_section" | grep "Token scopes")"
+        fail "$REVIEWER_BOT missing required scopes"
+        echo "  Current scopes: $(echo "$reviewer_section" | grep "Token scopes")"
     fi
 }
 
-test_va_worker_repo_access() {
-    info "Testing if va-worker can access repository..."
+test_worker_repo_access() {
+    info "Testing if $WORKER_BOT can access repository..."
 
-    if ! switch_to_account "va-worker"; then
-        fail "va-worker repo access test (auth switch failed)"
+    if ! switch_to_account "$WORKER_BOT"; then
+        fail "$WORKER_BOT repo access test (auth switch failed)"
         return
     fi
 
     if gh repo view "$REPO" --json name -q '.name' >/dev/null 2>&1; then
-        pass "va-worker can access repository"
+        pass "$WORKER_BOT can access repository"
     else
-        fail "va-worker cannot access repository"
+        fail "$WORKER_BOT cannot access repository"
     fi
 }
 
-test_va_worker_pr_api_access() {
-    info "Testing if va-worker can access PR API (needed to create PRs)..."
+test_worker_pr_api_access() {
+    info "Testing if $WORKER_BOT can access PR API (needed to create PRs)..."
 
-    if ! switch_to_account "va-worker"; then
-        fail "va-worker PR API test (auth switch failed)"
+    if ! switch_to_account "$WORKER_BOT"; then
+        fail "$WORKER_BOT PR API test (auth switch failed)"
         return
     fi
 
     if gh pr list --repo "$REPO" --limit 1 >/dev/null 2>&1; then
-        pass "va-worker can access PR API"
+        pass "$WORKER_BOT can access PR API"
     else
-        fail "va-worker cannot access PR API"
+        fail "$WORKER_BOT cannot access PR API"
     fi
 }
 
-test_va_reviewer_repo_access() {
-    info "Testing if va-reviewer can access repository..."
+test_reviewer_repo_access() {
+    info "Testing if $REVIEWER_BOT can access repository..."
 
-    if ! switch_to_account "va-reviewer"; then
-        fail "va-reviewer repo access test (auth switch failed)"
+    if ! switch_to_account "$REVIEWER_BOT"; then
+        fail "$REVIEWER_BOT repo access test (auth switch failed)"
         return
     fi
 
     if gh repo view "$REPO" --json name -q '.name' >/dev/null 2>&1; then
-        pass "va-reviewer can access repository"
+        pass "$REVIEWER_BOT can access repository"
     else
-        fail "va-reviewer cannot access repository"
+        fail "$REVIEWER_BOT cannot access repository"
     fi
 }
 
-test_va_reviewer_pr_api_access() {
-    info "Testing if va-reviewer can access PR API (needed to review PRs)..."
+test_reviewer_pr_api_access() {
+    info "Testing if $REVIEWER_BOT can access PR API (needed to review PRs)..."
 
-    if ! switch_to_account "va-reviewer"; then
-        fail "va-reviewer PR API test (auth switch failed)"
+    if ! switch_to_account "$REVIEWER_BOT"; then
+        fail "$REVIEWER_BOT PR API test (auth switch failed)"
         return
     fi
 
     if gh pr list --repo "$REPO" --limit 1 >/dev/null 2>&1; then
-        pass "va-reviewer can access PR API"
+        pass "$REVIEWER_BOT can access PR API"
     else
-        fail "va-reviewer cannot access PR API"
+        fail "$REVIEWER_BOT cannot access PR API"
     fi
 }
 
@@ -203,7 +224,7 @@ test_branch_protection_active() {
     info "Testing if branch protection is active on main..."
 
     # Switch to any authenticated account
-    switch_to_account "va-worker" 2>/dev/null || true
+    switch_to_account "$WORKER_BOT" 2>/dev/null || true
 
     local ruleset=$(gh api "repos/$REPO/rulesets" --jq '.[] | select(.name | test("main|Protect"; "i"))' 2>/dev/null)
 
@@ -222,7 +243,7 @@ test_branch_protection_active() {
 test_required_status_checks() {
     info "Testing if required status checks are configured..."
 
-    switch_to_account "va-worker" 2>/dev/null || true
+    switch_to_account "$WORKER_BOT" 2>/dev/null || true
 
     # Get ruleset ID first, then query its rules
     local ruleset_id=$(gh api "repos/$REPO/rulesets" --jq '.[0].id' 2>/dev/null)
@@ -254,7 +275,7 @@ test_required_status_checks() {
 test_approval_required() {
     info "Testing if PR approval is required..."
 
-    switch_to_account "va-worker" 2>/dev/null || true
+    switch_to_account "$WORKER_BOT" 2>/dev/null || true
 
     local ruleset_id=$(gh api "repos/$REPO/rulesets" --jq '.[0].id' 2>/dev/null)
     local approval_count=""
@@ -272,7 +293,7 @@ test_approval_required() {
 test_force_push_blocked() {
     info "Testing if force push is blocked..."
 
-    switch_to_account "va-worker" 2>/dev/null || true
+    switch_to_account "$WORKER_BOT" 2>/dev/null || true
 
     local ruleset_id=$(gh api "repos/$REPO/rulesets" --jq '.[0].id' 2>/dev/null)
     local non_ff=""
@@ -290,7 +311,7 @@ test_force_push_blocked() {
 test_deletion_blocked() {
     info "Testing if branch deletion is blocked..."
 
-    switch_to_account "va-worker" 2>/dev/null || true
+    switch_to_account "$WORKER_BOT" 2>/dev/null || true
 
     local ruleset_id=$(gh api "repos/$REPO/rulesets" --jq '.[0].id' 2>/dev/null)
     local deletion=""
@@ -308,7 +329,7 @@ test_deletion_blocked() {
 test_linear_history_required() {
     info "Testing if linear history is required..."
 
-    switch_to_account "va-worker" 2>/dev/null || true
+    switch_to_account "$WORKER_BOT" 2>/dev/null || true
 
     local ruleset_id=$(gh api "repos/$REPO/rulesets" --jq '.[0].id' 2>/dev/null)
     local linear=""
@@ -338,18 +359,18 @@ main() {
 
     # Run tests
     print_section "Account Existence Tests"
-    test_va_worker_exists
-    test_va_reviewer_exists
+    test_worker_exists
+    test_reviewer_exists
 
     print_section "PAT Scope Tests"
-    test_va_worker_scopes
-    test_va_reviewer_scopes
+    test_worker_scopes
+    test_reviewer_scopes
 
     print_section "Repository Access Tests"
-    test_va_worker_repo_access
-    test_va_worker_pr_api_access
-    test_va_reviewer_repo_access
-    test_va_reviewer_pr_api_access
+    test_worker_repo_access
+    test_worker_pr_api_access
+    test_reviewer_repo_access
+    test_reviewer_pr_api_access
 
     print_section "Branch Protection Tests"
     test_branch_protection_active
@@ -370,7 +391,7 @@ main() {
     # Document expected restrictions
     echo -e "${BLUE}Expected Permission Matrix:${NC}"
     echo ""
-    echo "  | Action              | va-worker | va-reviewer | Human |"
+    echo "  | Action              | Worker    | Reviewer    | Human |"
     echo "  |---------------------|-----------|-------------|-------|"
     echo "  | Create branches     | Yes       | No          | Yes   |"
     echo "  | Push to branches    | Yes       | No          | Yes   |"
@@ -379,6 +400,9 @@ main() {
     echo "  | Approve PRs         | No        | Yes         | Yes   |"
     echo "  | Merge PRs           | No        | No          | Yes   |"
     echo "  | Push to main        | No        | No          | No    |"
+    echo ""
+    echo "  Worker bot: $WORKER_BOT"
+    echo "  Reviewer bot: $REVIEWER_BOT"
     echo ""
 
     if [ $FAIL -eq 0 ]; then
