@@ -1,166 +1,112 @@
-# Product Requirements Document: Agile Flow
+# Product Requirements Document
 
-## Executive Summary
+<!--
+TEMPLATE: This is a template PRD. Run /bootstrap-product to fill it in
+with your product details through a guided questionnaire.
 
-Agile Flow is a project template for bootstrapping Claude Code projects with a complete agile workflow powered by specialized AI agents. It provides the configuration, policies, and commands needed to safely integrate AI agents into a trunk-based development workflow.
+Replace all [PLACEHOLDER] content with your actual product information.
+Remove the EXAMPLE markers when you replace the content.
+-->
 
-## Problem Statement
+## Product Overview
 
-Development teams adopting Claude Code face several challenges:
+- **Name**: [Your product name]
+- **Type**: [Web app | Mobile app | API service | CLI tool | Library | Other]
+- **Category**: [B2B SaaS | B2C Consumer | Developer tools | E-commerce | Other]
 
-1. **Safety Concerns**: AI agents can perform destructive actions (force push, merge, delete) without proper guardrails
-2. **Workflow Integration**: No clear pattern for integrating AI agents into existing agile workflows
-3. **Audit Trail**: Difficulty tracking which agent performed which action
-4. **Quality Control**: AI-generated code bypassing human review
-5. **Configuration Complexity**: Each project reinvents agent policies and permissions
+## Vision and Problem Statement
+
+### Problem
+
+[Describe the problem your product solves in 1-3 sentences.]
+
+<!-- EXAMPLE -- replace with your content:
+Development teams waste 40% of their time on repetitive coordination tasks
+that could be automated with AI agents, but lack safe guardrails for
+integrating AI into their workflows.
+-->
+
+### Vision
+
+[One sentence describing the ideal future state your product creates.]
+
+### How People Solve This Today
+
+[What alternatives or workarounds exist? Why are they inadequate?]
 
 ## Target Audience
 
 ### Primary Users
 
-**Development Teams** adopting Claude Code for AI-assisted development:
-- Teams practicing trunk-based development
-- Organizations requiring human oversight of AI actions
-- Projects needing clear separation of duties between agents and humans
+- **Who**: [Role, context, and goal in one sentence]
+- **Pain Point**: [The #1 problem they face]
+- **Current Solution**: [How they solve it today]
 
 ### Secondary Users
 
-**Platform Engineers** setting up AI development infrastructure:
-- Creating standardized agent configurations across projects
-- Establishing security policies for AI-assisted workflows
-- Building observability into agent actions
+[Other user types, or "None -- single user type"]
 
-## Product Vision
+## Features
 
-Enable safe, auditable, and productive AI-assisted development by providing:
+### MVP (Must Have)
 
-1. **Pre-configured agent policies** with explicit behavioral boundaries
-2. **Three-stage workflow** ensuring human control over code merging
-3. **Slash commands** for common agile operations
-4. **CI/CD integration** validating agent policy compliance
-5. **Observability tools** for monitoring agent actions
+<!-- List 3-5 features that MUST be in v1. Be specific and testable. -->
 
-## Core Value Propositions
+- [ ] [Feature 1 -- specific and measurable]
+- [ ] [Feature 2]
+- [ ] [Feature 3]
 
-### 1. Safety by Default
+### Out of Scope (v1)
 
-- NON-NEGOTIABLE PROTOCOL blocks prevent destructive actions
-- Agents cannot merge PRs, push to main, or close issues
-- Explicit deny rules for sensitive operations
+<!-- Equally important: what are you NOT building? -->
 
-### 2. Clear Separation of Duties
+- [Feature explicitly excluded from v1]
 
-| Role | Creates | Reviews | Merges |
-|------|---------|---------|--------|
-| github-ticket-worker | PRs | - | - |
-| pr-reviewer | - | Reviews | - |
-| Human | - | Final review | Merges |
+### Core Value Proposition
 
-### 3. Audit Trail
-
-- Dedicated bot accounts for worker and reviewer roles
-- All agent actions attributed to specific accounts
-- Clear distinction between AI and human actions
-
-### 4. Agile Integration
-
-- Project board integration (Ready → In Progress → In Review → Done)
-- Backlog prioritization with CD3 methodology
-- Sprint status and milestone tracking
-
-## Functional Requirements
-
-### FR-1: Agent Policies
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-1.1 | NON-NEGOTIABLE PROTOCOL blocks in all workflow agents | P0 |
-| FR-1.2 | GitHub account identity switching instructions | P0 |
-| FR-1.3 | Explicit "cannot do" boundaries for each agent | P0 |
-| FR-1.4 | Settings template with deny rules | P1 |
-
-### FR-2: Slash Commands
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-2.1 | /work-ticket - Pick up next ticket from Ready | P0 |
-| FR-2.2 | /review-pr - Review PRs in In Review column | P0 |
-| FR-2.3 | /groom-backlog - Prioritize and populate Ready | P0 |
-| FR-2.4 | /sprint-status - Board health overview | P1 |
-| FR-2.5 | /check-milestone - Milestone progress | P1 |
-
-### FR-3: CI/CD Integration
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-3.1 | Validate agent policy files have required sections | P0 |
-| FR-3.2 | Lint agent instructions for safety compliance | P1 |
-| FR-3.3 | Verify settings.template.json deny rules | P1 |
-
-### FR-4: Observability
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-4.1 | Agent action logging | P1 |
-| FR-4.2 | Policy violation detection | P1 |
-| FR-4.3 | Weekly audit workflows | P2 |
-
-## Non-Functional Requirements
-
-### NFR-1: Security
-
-- No hardcoded secrets in agent policies
-- PAT storage guidance for bot accounts
-- Explicit deny rules for sensitive file access
-
-### NFR-2: Extensibility
-
-- Template placeholders for project-specific customization
-- Clear separation between framework and project code
-- Documentation for adding new agents
-
-### NFR-3: Usability
-
-- Clear setup instructions in .claude/README.md
-- Settings template with explanatory comments
-- Troubleshooting FAQ
+[The ONE thing your product must do exceptionally well.]
 
 ## Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Agent policy violations | 0 per sprint |
-| PRs merged by agents | 0 (human-only) |
-| Setup time for new project | < 30 minutes |
-| Agent configuration reuse | > 90% across projects |
+| Metric | Target (3 months) |
+|--------|-------------------|
+| Primary: [e.g., Monthly active users] | [e.g., 500] |
+| Secondary: [e.g., Retention rate] | [e.g., 60%] |
 
-## Out of Scope
+## Competitive Analysis
 
-- Application-specific code (this is a template, not an app)
-- Runtime agent execution (handled by Claude Code)
-- GitHub account creation (manual setup required)
-- CI/CD pipeline execution (GitHub Actions handles this)
+| Competitor | Strength | Weakness | Your Differentiator |
+|-----------|----------|----------|---------------------|
+| [Name] | [What they do well] | [Where they fall short] | [Why you win] |
+
+## Constraints and Requirements
+
+- **Timeline**: [When do you need to launch?]
+- **Budget**: [Resource constraints]
+- **Technical**: [Must-use technologies, compliance requirements]
+- **Team**: [Available expertise]
+
+## Non-Functional Requirements
+
+| Category | Requirement |
+|----------|-------------|
+| Security | [Auth approach, data protection] |
+| Performance | [Latency, throughput targets] |
+| Scalability | [Expected load, growth] |
+| Accessibility | [WCAG level, requirements] |
 
 ## Dependencies
 
-- Claude Code CLI
-- GitHub repository with project board
-- GitHub Actions for CI/CD
-- MCP servers (GitHub, Memory)
+- [External service or tool this product depends on]
 
 ## Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Agent bypasses NON-NEGOTIABLE PROTOCOL | High | Branch protection + policy linter |
-| Bot account credentials leaked | High | PAT rotation + security docs |
-| Stale agent policies | Medium | CI validation + audit workflows |
+| [Risk description] | High/Medium/Low | [How to prevent or handle] |
 
 ## Glossary
 
 | Term | Definition |
 |------|------------|
-| NON-NEGOTIABLE PROTOCOL | Override rules that agents must follow regardless of other instructions |
-| Three-stage workflow | Worker creates → Reviewer reviews → Human merges |
-| CD3 | Cost of Delay Divided by Duration - prioritization methodology |
-| Definition of Ready | Criteria a ticket must meet before development starts |
+| [Domain term] | [What it means in this product] |

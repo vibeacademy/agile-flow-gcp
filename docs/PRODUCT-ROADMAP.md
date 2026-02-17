@@ -1,133 +1,89 @@
-# Product Roadmap: Agile Flow
+# Product Roadmap
+
+<!--
+TEMPLATE: This is a template roadmap. Run /bootstrap-product to generate
+a roadmap based on your PRD.
+
+Replace all [PLACEHOLDER] content with your actual product plans.
+Remove the EXAMPLE markers when you replace the content.
+-->
 
 ## Overview
 
-This roadmap outlines the phased development of Agile Flow, a project template for bootstrapping Claude Code projects with a complete agile workflow powered by specialized AI agents.
+[One paragraph describing the product direction and timeline.]
 
-## Roadmap Phases
+## Phase 1: MVP
 
-### Phase 1: Foundation (COMPLETE)
+- **Target**: [Date or timeframe]
+- **Goal**: Deliver core value proposition to first users
 
-**Goal**: Establish core agent architecture with safety guarantees.
+### Features
 
-| Epic | Description | Status |
-|------|-------------|--------|
-| #1 - Core Agent Safety Architecture | NON-NEGOTIABLE PROTOCOL, bot account separation, settings template | Done |
-| #6 - PR Workflow Improvements | Rename pr-reviewer-merger to pr-reviewer, clarify approval boundaries | Done |
+| Feature | Priority | Status |
+|---------|----------|--------|
+| [Feature from PRD] | P0 | Backlog |
+| [Feature from PRD] | P0 | Backlog |
+| [Feature from PRD] | P1 | Backlog |
 
-**Deliverables**:
-- Agent policies with explicit behavioral boundaries
-- Bot account documentation and setup guide
-- Settings template with deny rules for sensitive operations
-- Three-stage workflow (worker creates, reviewer reviews, human merges)
+### Success Criteria
 
-### Phase 2: Quality Infrastructure (IN PROGRESS)
+- [ ] [Primary metric from PRD] reaches [target]
+- [ ] [Acceptance criterion]
 
-**Goal**: Build validation and observability tooling.
+## Phase 2: Iteration
 
-| Epic | Description | Status |
-|------|-------------|--------|
-| #20 - CI/CD Pipeline | GitHub Actions workflow, validation scripts, policy linter | Done |
-| #11 - Safety & Observability | Agent action logging, audit trails, violation detection | Ready |
+- **Target**: Post-MVP (1-2 months after launch)
+- **Goal**: Expand based on user feedback
 
-**Deliverables**:
-- CI pipeline validating agent policies
-- Agent instruction linter
-- Audit logging infrastructure
-- Weekly audit workflows
+### Features
 
-### Phase 3: Integration & Extensibility
+| Feature | Priority | Status |
+|---------|----------|--------|
+| [Based on user feedback] | TBD | Backlog |
 
-**Goal**: Enable project integration and customization.
+### Success Criteria
 
-| Epic | Description | Status |
-|------|-------------|--------|
-| #16 - Cloudflare Integration | DevOps engineer agent, preview environments, infrastructure cleanup | Backlog |
-| Bootstrap Commands | /bootstrap-product, /bootstrap-architecture, /bootstrap-agents, /bootstrap-workflow | Backlog |
+- [ ] [Retention or engagement metric]
 
-**Deliverables**:
-- Infrastructure integration patterns
-- Project bootstrap workflow
-- Agent specialization automation
-- Template placeholders for customization
+## Phase 3: Growth
 
-### Phase 4: Documentation & Polish
+- **Target**: [3-6 months post-launch]
+- **Goal**: Scale and expand capabilities
 
-**Goal**: Production-ready documentation and tooling.
+### Features
 
-| Epic | Description | Status |
-|------|-------------|--------|
-| #24 - Documentation | Comprehensive README, setup guide, troubleshooting FAQ | Backlog |
-| Marketing Commands | Campaign planning, referral programs, GTM alignment | Backlog |
-
-**Deliverables**:
-- Complete setup documentation
-- Troubleshooting guide
-- Example configurations
-- Marketing agent documentation
+| Feature | Priority | Status |
+|---------|----------|--------|
+| [Growth feature] | TBD | Backlog |
 
 ## Milestone Definitions
 
-### M1: Safe Agent Operations (COMPLETE)
+| Milestone | Criteria | Target Date |
+|-----------|----------|-------------|
+| M1: MVP Launch | Core features live, first users onboarded | [Date] |
+| M2: Product-Market Fit | [Retention/engagement threshold] | [Date] |
+| M3: Growth | [Scale/revenue threshold] | [Date] |
 
-Agents cannot perform destructive actions:
-- No direct commits to main
-- No PR merges by agents
-- No issue closure by agents
-- Clear audit trail via bot accounts
-
-### M2: Validated Workflows (IN PROGRESS)
-
-All agent operations are validated:
-- CI validates agent policies on every PR
-- Policy violations detected before merge
-- Audit logging captures agent actions
-
-### M3: Production Ready
-
-Template is ready for adoption:
-- Complete documentation
-- Bootstrap automation
-- Integration examples
-- Troubleshooting resources
-
-## Success Criteria
-
-| Phase | Criteria |
-|-------|----------|
-| Phase 1 | Zero agent policy violations possible through NON-NEGOTIABLE PROTOCOL |
-| Phase 2 | CI catches 100% of policy compliance issues |
-| Phase 3 | New project setup < 30 minutes |
-| Phase 4 | Self-service adoption without support |
-
-## Dependencies
-
-```
-Phase 1: Foundation
-    |
-    v
-Phase 2: Quality Infrastructure
-    |
-    v
-Phase 3: Integration & Extensibility
-    |
-    v
-Phase 4: Documentation & Polish
-```
-
-Each phase builds on the previous. Phase 2 cannot validate what Phase 1 didn't define. Phase 3 cannot integrate what Phase 2 didn't validate.
-
-## Risk Register
+## Constraints and Risks
 
 | Risk | Phase | Mitigation |
 |------|-------|------------|
-| Agent bypasses safety controls | 1 | NON-NEGOTIABLE PROTOCOL + branch protection |
-| CI doesn't catch violations | 2 | Multiple validation layers + policy linter |
-| Complex setup deters adoption | 3-4 | Bootstrap automation + clear docs |
-| Stale documentation | 4 | CI validation of doc accuracy |
+| [Risk from PRD] | 1 | [Mitigation strategy] |
+
+## Dependencies
+
+```text
+Phase 1: MVP
+    |
+    v
+Phase 2: Iteration (requires user feedback from Phase 1)
+    |
+    v
+Phase 3: Growth (requires product-market fit from Phase 2)
+```
 
 ## Revision History
 
 | Date | Change | Author |
 |------|--------|--------|
-| 2025-12-07 | Initial roadmap creation | Claude |
+| [Date] | Initial roadmap creation | [Name] |

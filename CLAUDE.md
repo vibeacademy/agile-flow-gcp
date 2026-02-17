@@ -133,6 +133,8 @@ approved, tests passing, no lint errors, PR merged to main.
 | `docs/CONTEXT-OPTIMIZATIONS.md` | Context engineering principles |
 | `docs/SENTRY-SETUP.md` | Sentry + GitHub integration setup |
 | `docs/CI-CD-GUIDE.md` | Workflows, secrets, troubleshooting |
+| `docs/PLATFORM-GUIDE.md` | Deployment platform options and setup |
+| `docs/WORKSHOP-GUIDE.md` | Instructor guide for 3-day workshop |
 | `docs/GETTING-STARTED.md` | First-time setup walkthrough |
 | `docs/AGENT-WORKFLOW-SUMMARY.md` | Complete workflow documentation |
 | `docs/MAINTENANCE.md` | Weekly audit and maintenance guide |

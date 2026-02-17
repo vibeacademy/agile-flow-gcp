@@ -19,6 +19,34 @@ The System Architect will read your PRD and help you define:
 
 ## Process
 
+### 0. Platform Selection
+
+Before diving into architecture, ask the user about their deployment platform:
+
+```
+What platform will you deploy to?
+
+1. Render (Recommended for this template)
+2. Cloudflare (Workers/Pages)
+3. Vercel
+4. Railway
+5. Fly.io
+6. Other (please specify)
+
+Enter a number (1-6):
+```
+
+Write the platform choice to `.claude/PROJECT.md`:
+
+```markdown
+## Platform
+- **Hosting**: [selected platform]
+- **Selected**: [date]
+```
+
+This file is read by the `devops-engineer` and `system-architect` agents
+to provide platform-specific guidance.
+
 ### 1. PRD Analysis
 The architect first analyzes your Product Requirements:
 - What features need to be built?

@@ -16,6 +16,33 @@ For multiple-choice questions, present numbered options and ask the user to resp
 
 ## Questionnaire
 
+### Section 0: Your Domain
+
+**Question 0.1**
+```
+What is your product's domain? Describe it in one sentence.
+
+Example: "A fitness studio management platform for boutique gym owners"
+Example: "A developer tool for managing database migrations"
+Example: "An e-commerce marketplace for handmade crafts"
+
+Your domain:
+```
+
+**Question 0.2**
+```
+What is your core value proposition in one sentence?
+
+Example: "We help boutique gym owners fill every class slot automatically"
+Example: "Ship database changes safely with zero-downtime migrations"
+
+Your value proposition:
+```
+
+Use the domain and value proposition throughout the generated PRD and
+Roadmap to make them specific to the founder's product, not generic
+template content.
+
 ### Section 1: Product Type & Category
 
 **Question 1.1**
