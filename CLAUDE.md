@@ -132,6 +132,7 @@ approved, tests passing, no lint errors, PR merged to main.
 | `docs/AGENTIC-CONTROLS.md` | 8-layer defense-in-depth controls |
 | `docs/CONTEXT-OPTIMIZATIONS.md` | Context engineering principles |
 | `docs/SENTRY-SETUP.md` | Sentry + GitHub integration setup |
+| `docs/CI-CD-GUIDE.md` | Workflows, secrets, troubleshooting |
 | `docs/GETTING-STARTED.md` | First-time setup walkthrough |
 | `docs/AGENT-WORKFLOW-SUMMARY.md` | Complete workflow documentation |
 | `docs/MAINTENANCE.md` | Weekly audit and maintenance guide |

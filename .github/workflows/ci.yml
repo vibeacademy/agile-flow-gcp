@@ -73,11 +73,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for Python project
+        id: check_python
+        run: |
+          if [ -f "pyproject.toml" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No pyproject.toml found -- skipping Python checks."
+          fi
+
       - name: Install uv
+        if: steps.check_python.outputs.skip != 'true'
         uses: astral-sh/setup-uv@v4
 
       - name: Lint with ruff
+        if: steps.check_python.outputs.skip != 'true'
         run: uv run --extra dev ruff check .
 
-      - name: Run tests
-        run: uv run --extra dev pytest --tb=short -q
+      - name: Type check with mypy
+        if: steps.check_python.outputs.skip != 'true'
+        continue-on-error: true
+        run: |
+          uv run --extra dev pip install mypy 2>/dev/null || true
+          uv run --extra dev mypy . --ignore-missing-imports || echo "mypy not configured -- skipping"
+
+      - name: Run tests with coverage
+        if: steps.check_python.outputs.skip != 'true'
+        run: |
+          uv run --extra dev pytest --tb=short -q --cov --cov-report=term-missing --cov-fail-under=${COVERAGE_THRESHOLD:-80}
+
+      - name: Run BDD tests
+        if: steps.check_python.outputs.skip != 'true' && hashFiles('features/*.feature') != ''
+        run: uv run --extra dev pytest --tb=short -q features/

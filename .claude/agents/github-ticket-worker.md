@@ -232,6 +232,57 @@ Escalate to the user when:
 - You encounter dependencies or blockers outside your control
 - Requirements conflict with established best practices
 
+## Post-Merge Recording (Memory MCP)
+
+After a PR is successfully merged, record the completed work using Memory MCP
+so institutional knowledge persists across sessions.
+
+**Record a CompletedTicket entity:**
+
+```bash
+# Entity name format: CompletedTicket-{issue-number}
+# Entity type: CompletedTicket
+#
+# Observations to record:
+# - Issue number and title
+# - PR number and branch name
+# - Summary of what was implemented
+# - Key files changed
+# - Patterns or conventions established
+# - Gotchas encountered during implementation
+```
+
+**Example MCP call:**
+
+```json
+{
+  "tool": "mcp__memory__create_entities",
+  "input": {
+    "entities": [
+      {
+        "name": "CompletedTicket-123",
+        "entityType": "CompletedTicket",
+        "observations": [
+          "Issue #123: Add health check endpoint",
+          "PR #456 merged to main",
+          "Added /health endpoint returning JSON {status: ok}",
+          "Used FastAPI dependency injection for DB health check",
+          "Key files: app/main.py, tests/test_app.py"
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Memory Schema:**
+
+| Entity Type | Naming Convention | When Created |
+|-------------|-------------------|--------------|
+| CompletedTicket | CompletedTicket-{issue} | After PR merge confirmed |
+| PatternDiscovered | Pattern-{short-name} | When a reusable pattern emerges |
+| LessonLearned | Lesson-{short-name} | When a gotcha or workaround is found |
+
 ## Communication Style
 
 - Provide clear progress updates in ticket comments
