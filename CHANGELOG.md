@@ -13,11 +13,11 @@ Pre-upgrade baseline — the first tagged release of Agile Flow.
 
 ### Added
 
-- Core agent definitions: Product Manager, Product Owner, Ticket Worker, PR Reviewer, Quality Engineer, System Architect, Growth Marketing Strategist
+- Core agent definitions: Product Manager, Product Owner, Ticket Worker, PR Reviewer, Quality Engineer, System Architect, DevOps Engineer
 - Structured agile workflow with progressive refinement (Product Definition → Technical Architecture → Agent Specialization → Workflow Activation)
 - Trunk-based development workflow with feature branches and PR-based merges
 - GitHub Project board integration with Icebox, Backlog, Ready, In Progress, Review, Done columns
-- Slash commands for agent interactions (`/lock-scope`, marketing commands)
+- Slash commands for agent interactions (`/lock-scope`, `/work-ticket`, etc.)
 - `bootstrap.sh` interactive wizard for project initialization
 - CI pipeline with validation tests (`.github/workflows/ci.yml`)
 - Bot permissions verification script (`scripts/verify-bot-permissions.sh`)

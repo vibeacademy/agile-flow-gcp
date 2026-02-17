@@ -78,7 +78,7 @@ This phase creates:
 - Search: [e.g., Elasticsearch] (if needed)
 
 ### Infrastructure
-- Hosting: [e.g., AWS/GCP/Cloudflare]
+- Hosting: [e.g., Render/Cloudflare/Vercel/Railway/Fly.io]
 - CI/CD: [e.g., GitHub Actions]
 - Monitoring: [e.g., DataDog]
 

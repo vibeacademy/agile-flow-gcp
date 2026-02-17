@@ -26,6 +26,5 @@ async def health():
 @app.get("/error")
 async def error():
     raise RuntimeError(
-        "Deliberate error for Day 1 workshop exercise — "
-        "this should appear in Sentry and auto-create a GitHub issue."
+        "Deliberate error for Day 1 workshop exercise — this should appear in Sentry and auto-create a GitHub issue."
     )

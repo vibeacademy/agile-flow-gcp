@@ -14,7 +14,7 @@ Agile Flow provides a team of AI agents that work together to manage your softwa
 | PR Reviewer | Code review, quality gate |
 | Quality Engineer | Test planning, validation |
 | System Architect | Design guidance, patterns |
-| Growth Marketing Strategist | Campaigns, GTM, user acquisition |
+| DevOps Engineer | Deployment, infrastructure, previews |
 
 The agents hand off work to each other through a structured workflow, with humans making final merge decisions.
 
@@ -158,9 +158,9 @@ This creates `docs/SCOPE-LOCK.md` and signals that:
 - Changes require formal trade-off discussion
 
 **Why lock scope?** Scope lock is the handoff point where:
-- Marketing can start planning campaigns against a known target
-- Engineering can commit to timelines
+- Engineering can commit to realistic timelines
 - Stakeholders are aligned on what "done" means
+- Scope creep becomes visible (requires unlocking)
 
 See [Scope Lock](#scope-lock) below for detailed criteria.
 
@@ -182,14 +182,6 @@ Once bootstrap is complete, use the standard workflow:
 /evaluate-feature       # Assess feature requests
 /release-decision       # Go/no-go for releases
 /architect-review       # Design guidance
-
-# Marketing & GTM
-/sync-gtm               # Product-Marketing alignment checkpoints
-/plan-campaign          # Design marketing campaigns
-/design-referral-program # Create viral/referral programs
-/plan-ugc-campaign      # User-generated content campaigns
-/plan-local-marketing   # Local/regional marketing
-/audit-marketing        # Audit and optimize marketing
 ```
 
 ## Project Structure
@@ -204,7 +196,7 @@ your-project/
 │   │   ├── pr-reviewer.md
 │   │   ├── quality-engineer.md
 │   │   ├── system-architect.md
-│   │   └── growth-marketing-strategist.md
+│   │   └── devops-engineer.md
 │   ├── commands/               # Slash commands
 │   │   ├── bootstrap-product.md
 │   │   ├── bootstrap-architecture.md
@@ -378,7 +370,6 @@ Scope lock is a formal checkpoint that signals MVP scope is finalized and develo
 - Before significant development begins
 
 **Why Lock Matters:**
-- **Marketing** can plan campaigns against a known target
 - **Engineering** can commit to realistic timelines
 - **Stakeholders** are aligned on what "done" means
 - **Scope creep** becomes visible (requires unlocking)
@@ -387,266 +378,6 @@ Scope lock is a formal checkpoint that signals MVP scope is finalized and develo
 1. Verify all lock criteria are met
 2. Document the locked scope
 3. Create `docs/SCOPE-LOCK.md` as the contract
-4. Trigger `/sync-gtm` Checkpoint 2 (Scope Lock)
-
-### Product-Marketing Alignment
-
-Marketing often gets "thrown over the wall" after product is built. Agile Flow solves this with **GTM checkpoints** that bring marketing into the loop at key phases:
-
-| Checkpoint | When | Purpose |
-|------------|------|---------|
-| PRD Review | After PRD draft | Marketing validates personas & positioning |
-| Scope Lock | MVP finalized | Marketing gets briefed, starts GTM planning |
-| Dev Midpoint | ~50% complete | Marketing finalizes assets |
-| Pre-Launch | Feature complete | Final alignment, soft launch |
-| Launch | Go-live | Execute and monitor |
-| Post-Launch | 1-2 weeks after | Analyze, iterate, feedback loop |
-
-Run `/sync-gtm` at each phase to ensure alignment. Each checkpoint produces an artifact in `docs/gtm/` that serves as the contract between Product and Marketing.
-
-## Marketing Commands
-
-### When to Use Marketing Commands
-
-**Prerequisites:** Marketing commands are most effective after:
-1. PRD is complete (you know WHO you're building for)
-2. MVP scope is locked (you know WHAT you're launching)
-3. You can articulate your value proposition in one sentence
-
-**Don't use marketing commands:**
-- Before product-market fit is validated
-- When the product is still pivoting frequently
-- If you can't answer "who is this for?" clearly
-
-### Command Reference
-
-#### `/sync-gtm` - Product-Marketing Alignment Checkpoints
-
-**When:** At each phase transition (PRD done, scope locked, dev midpoint, pre-launch, launch, post-launch)
-
-**Purpose:** Ensures Product and Marketing stay aligned throughout development. Prevents the "throw it over the wall" anti-pattern.
-
-**Output:** Checkpoint artifact saved to `docs/gtm/checkpoint-{N}-{phase}.md`
-
-**Example workflow:**
-```bash
-# After completing PRD
-/sync-gtm
-> Select: 1 (PRD Review)
-# Marketing reviews personas, positioning, validates target is reachable
-
-# After MVP scope is locked
-/sync-gtm
-> Select: 2 (Scope Lock)
-# Marketing gets briefed, starts planning GTM strategy
-```
-
----
-
-#### `/plan-campaign` - Design Marketing Campaigns
-
-**When:** You have a specific marketing goal (launch, awareness, acquisition, re-engagement)
-
-**Purpose:** Creates a structured campaign brief with audience, channels, creative direction, budget, and timeline.
-
-**Output:** Campaign brief saved to `docs/campaigns/{campaign-name}-brief.md`
-
-**Best for:**
-- Product launches
-- Feature announcements
-- Seasonal promotions
-- User acquisition pushes
-
-**Example:**
-```bash
-/plan-campaign
-# Answer questions about goal, audience, budget, timeline, channels
-# Outputs a ready-to-execute campaign brief
-```
-
----
-
-#### `/design-referral-program` - Create Viral/Referral Programs
-
-**When:** You want to grow through word-of-mouth and user referrals
-
-**Purpose:** Designs incentive structure, mechanics, tracking, and anti-fraud measures for a referral or ambassador program.
-
-**Output:** Program design saved to `docs/REFERRAL-PROGRAM.md`
-
-**Best for:**
-- Products with network effects
-- High customer lifetime value (can afford referral rewards)
-- Products users naturally want to share
-- Reducing customer acquisition cost (CAC)
-
-**Not recommended if:**
-- Product isn't yet delivering value (users won't refer)
-- LTV is too low to support referral rewards
-- Product is B2B enterprise (longer sales cycles)
-
-**Example:**
-```bash
-/design-referral-program
-# Answer questions about program type, incentives, user value
-# Outputs referral mechanics, economics, and implementation plan
-```
-
----
-
-#### `/plan-ugc-campaign` - User-Generated Content Campaigns
-
-**When:** You want to build social proof, community engagement, or authentic marketing content
-
-**Purpose:** Designs campaigns that encourage users to create and share content about your product.
-
-**Output:** Campaign plan saved to `docs/campaigns/ugc-{campaign-name}.md`
-
-**Best for:**
-- Visual products (food, fashion, design, travel)
-- Community-driven products
-- Products with passionate users
-- Building social proof before paid ads
-
-**Types of UGC campaigns:**
-- Social media challenges/hashtags
-- Review/testimonial collection
-- Photo/video contests
-- User spotlight programs
-- Ambassador content programs
-
-**Example:**
-```bash
-/plan-ugc-campaign
-# Answer questions about content type, incentives, duration
-# Outputs participation guidelines, promotion plan, success metrics
-```
-
----
-
-#### `/plan-local-marketing` - Local/Regional Marketing Strategy
-
-**When:** Expanding to a new geographic market or doubling down on a specific region
-
-**Purpose:** Creates a localized marketing plan with community partnerships, local influencers, geo-targeted campaigns, and grassroots tactics.
-
-**Output:** Local plan saved to `docs/local-marketing/{city-region}.md`
-
-**Best for:**
-- Location-based services
-- Products launching market-by-market
-- Testing product-market fit in specific regions
-- Building local community presence
-
-**Tactics included:**
-- Local influencer partnerships
-- Community event sponsorships
-- Local business partnerships
-- Grassroots street teams
-- Local PR/media outreach
-- Geo-targeted digital ads
-- Local SEO optimization
-
-**Example:**
-```bash
-/plan-local-marketing
-# Specify target city/region
-# Answer questions about objectives, budget, resources
-# Outputs comprehensive local launch playbook
-```
-
----
-
-#### `/audit-marketing` - Audit and Optimize Marketing
-
-**When:** Marketing is running but you're not sure what's working, or CAC is too high
-
-**Purpose:** Reviews current marketing efforts across all channels and provides optimization recommendations.
-
-**Output:** Audit report saved to `docs/MARKETING-AUDIT.md`
-
-**Best for:**
-- Quarterly marketing reviews
-- When CAC is rising unexpectedly
-- Before scaling marketing spend
-- When inheriting existing marketing efforts
-
-**What it covers:**
-- Channel-by-channel performance assessment
-- Budget allocation analysis
-- Quick wins (next 30 days)
-- Strategic recommendations (60-90 days)
-- Channels to consider adding
-- Metrics to start tracking
-
-**Example:**
-```bash
-/audit-marketing
-# Answer questions about current channels, spend, challenges
-# Outputs prioritized action plan with effort/impact ratings
-```
-
-### Marketing Outputs Summary
-
-| Command | Output Location | Artifact |
-|---------|-----------------|----------|
-| `/sync-gtm` | `docs/gtm/` | Checkpoint alignment docs |
-| `/plan-campaign` | `docs/campaigns/` | Campaign briefs |
-| `/design-referral-program` | `docs/` | REFERRAL-PROGRAM.md |
-| `/plan-ugc-campaign` | `docs/campaigns/` | UGC campaign plans |
-| `/plan-local-marketing` | `docs/local-marketing/` | Local market playbooks |
-| `/audit-marketing` | `docs/` | MARKETING-AUDIT.md |
-
-### Recommended Marketing Workflow
-
-```
-1. Complete PRD
-   |
-   v
-2. /sync-gtm (Checkpoint 1: PRD Review)
-   |  - Marketing validates personas are reachable
-   |  - Confirms positioning is differentiated
-   v
-3. Lock MVP scope
-   |
-   v
-4. /sync-gtm (Checkpoint 2: Scope Lock)
-   |  - Marketing gets full briefing
-   |  - Starts planning campaigns
-   v
-5. /plan-campaign (if doing launch campaign)
-   /design-referral-program (if using referrals)
-   |
-   v
-6. Development reaches 50%
-   |
-   v
-7. /sync-gtm (Checkpoint 3: Dev Midpoint)
-   |  - Marketing finalizes assets
-   |  - Campaigns ready to activate
-   v
-8. Feature complete
-   |
-   v
-9. /sync-gtm (Checkpoint 4: Pre-Launch)
-   |  - Final alignment
-   |  - Soft launch to early adopters
-   v
-10. Launch
-    |
-    v
-11. /sync-gtm (Checkpoint 5: Launch)
-    |  - Execute campaigns
-    |  - Monitor metrics
-    v
-12. 1-2 weeks post-launch
-    |
-    v
-13. /sync-gtm (Checkpoint 6: Post-Launch)
-    /audit-marketing
-    |  - Analyze results
-    |  - Iterate on what's working
-```
 
 ## Troubleshooting
 

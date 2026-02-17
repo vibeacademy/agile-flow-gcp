@@ -12,6 +12,9 @@ required secrets, and default states.
 | Deploy | `deploy.yml` | Push to main | Inert | RENDER_API_KEY, RENDER_SERVICE_ID |
 | Preview Deploy | `preview-deploy.yml` | PR opened/updated | Inert | RENDER_API_KEY, RENDER_SERVICE_ID |
 | Preview Cleanup | `preview-cleanup.yml` | PR closed | Inert | RENDER_API_KEY, RENDER_SERVICE_ID |
+| Auto Review | `auto-review.yml` | PR opened/ready | Active | None |
+| Auto Fix | `auto-fix.yml` | PR opened/updated | Active | None |
+| Rollback | `rollback-production.yml` | Manual dispatch | Inert | RENDER_API_KEY, RENDER_SERVICE_ID |
 
 ## Active by Default
 
@@ -43,6 +46,17 @@ automatically.
 
 Triggers when a `v*` tag is pushed. Extracts the matching section from
 `CHANGELOG.md` and creates a GitHub Release.
+
+### Auto Review (`auto-review.yml`)
+
+Posts a review reminder comment on new PRs, prompting the team to run
+`/review-pr` for an agent review.
+
+### Auto Fix (`auto-fix.yml`)
+
+Automatically fixes lint issues on PR branches. For Python projects,
+runs `ruff check --fix` and `ruff format`, then commits the results
+back to the PR branch.
 
 ## Enable When Ready
 
@@ -82,6 +96,18 @@ configured in this template).
 ### Preview Cleanup (`preview-cleanup.yml`)
 
 Cleans up preview environments when PRs are closed or merged.
+
+**Requires the same secrets as Deploy.**
+
+### Rollback Production (`rollback-production.yml`)
+
+Emergency rollback triggered manually via GitHub Actions UI.
+
+**To trigger:**
+
+1. Go to **Actions > Rollback Production > Run workflow**
+2. Optionally provide a specific deploy ID (defaults to previous deploy)
+3. Provide the reason for rollback (required)
 
 **Requires the same secrets as Deploy.**
 

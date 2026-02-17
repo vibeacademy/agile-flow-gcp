@@ -84,7 +84,7 @@ Set calendar reminders for these rotation events:
 |-------|-----------------|---------------|
 | worker-bot PAT | 90 days | [Set from creation date] |
 | reviewer-bot PAT | 90 days | [Set from creation date] |
-| Cloudflare token | 90 days | [If applicable] |
+| Platform API key | 90 days | [If applicable] |
 
 ### Rotation Procedure
 
