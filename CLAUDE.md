@@ -138,6 +138,7 @@ approved, tests passing, no lint errors, PR merged to main.
 | `docs/GETTING-STARTED.md` | First-time setup walkthrough |
 | `docs/FIRST-DAY.md` | Participant Day 1 walkthrough |
 | `docs/FAQ.md` | Common questions for non-engineers |
+| `docs/TICKET-FORMAT.md` | Agentic PRD Lite ticket format (canonical) |
 | `docs/ARTIFACT-FLOW.md` | Artifact flow diagrams and authority matrix |
 | `docs/AGENT-WORKFLOW-SUMMARY.md` | Complete workflow documentation |
 | `docs/MAINTENANCE.md` | Weekly audit and maintenance guide |

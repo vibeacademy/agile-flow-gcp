@@ -178,6 +178,13 @@ Every ticket moved to Ready must have:
 - Technical guidance (files to modify, components to create, mobile/web considerations)
 - No unresolved blockers
 
+**Scoping Heuristics (Agentic Readiness):**
+The old bar: "Is this well-defined enough to work on?" The new bar: "Is this scoped narrowly enough that an agent can implement it in a single PR without hallucinating the gaps?"
+- One ticket = one deployable change (single PR)
+- If >3 files touched for unrelated reasons → decompose into separate tickets
+- If environment context exceeds 4 sentences → the scope is too broad; decompose
+- If the happy path has >1 major branch point → consider splitting into separate tickets
+
 ### 4. Ticket Quality Standards (CRITICAL)
 
 Before moving any ticket to Ready, ensure it meets these standards:
@@ -209,16 +216,23 @@ Before moving any ticket to Ready, ensure it meets these standards:
 - [ ] Tests achieve coverage threshold
 - [ ] Feature runs successfully in target environments
 
-## Technical Implementation
-### Files to Create/Modify
-[List files that will be created or modified]
+## Power Sections (Agentic PRD Lite — see `docs/TICKET-FORMAT.md`)
 
-### Dependencies
+### A. Environment Context
+[Repo path, key files, stack/framework versions — sourced from `docs/TECHNICAL-ARCHITECTURE.md`]
+
+### B. Guardrails
+[Constraints, things the implementer must NOT do — sourced from `docs/AGENTIC-CONTROLS.md` and PRD]
+
+### C. Happy Path
+[Step-by-step: Input → Logic → Output. One clear flow, no major branch points.]
+
+### D. Definition of Done
+[Concrete acceptance tests/assertions that prove the ticket is complete]
+
+## Dependencies
 - [ ] [Dependency 1] (issue #X)
 - [ ] [Dependency 2] (issue #Y)
-
-### Architecture Notes
-[Technical considerations, API integration, etc.]
 
 ## Effort Estimate
 [X] days
@@ -232,7 +246,27 @@ P[0-3] - [Rationale based on CD3 analysis]
 - Blocks: #[issue-number]
 ```
 
-### 5. Epic Management
+### 5. Ticket Authoring Format (Agentic PRD Lite)
+
+When writing or refining tickets, use the **Agentic PRD Lite** format defined in `docs/TICKET-FORMAT.md`. That file is the canonical format spec — do not duplicate it here; read it before every grooming session.
+
+**Before populating a ticket**, read these source documents:
+- `docs/TECHNICAL-ARCHITECTURE.md` — for environment context
+- `docs/AGENTIC-CONTROLS.md` — for guardrails and constraints
+- `docs/PRODUCT-REQUIREMENTS.md` — for feature scope, acceptance criteria, and business constraints
+
+**The 4 Power Sections (summary):**
+
+| Section | Purpose | Primary Source |
+|---|---|---|
+| **A. Environment Context** | Repo paths, key files, stack versions — everything the implementer needs to orient | `docs/TECHNICAL-ARCHITECTURE.md` |
+| **B. Guardrails** | Hard constraints and things the implementer must NOT do | `docs/AGENTIC-CONTROLS.md` + PRD constraints |
+| **C. Happy Path** | Step-by-step flow: Input → Logic → Output (one clear path, no ambiguity) | PRD user journeys + technical architecture |
+| **D. Definition of Done** | Concrete tests/assertions that prove the ticket is complete | PRD acceptance criteria + project test standards |
+
+Every ticket moved to Ready must have all 4 Power Sections populated. If you cannot fill a section, the ticket is not ready — either gather the missing information or decompose the ticket further.
+
+### 6. Epic Management
 
 **Creating Epics:**
 Epics group related features or infrastructure work:
@@ -273,7 +307,7 @@ Epic: Payment & Monetization
 [How we know this epic is complete and delivering value]
 ```
 
-### 6. Periodic Backlog Grooming
+### 7. Periodic Backlog Grooming
 
 **Weekly Grooming Session:**
 1. **Read product docs**: Review PRODUCT-REQUIREMENTS.md and PRODUCT-ROADMAP.md
@@ -292,7 +326,7 @@ Epic: Payment & Monetization
 - % mapped to roadmap phases
 - % blocked by dependencies
 
-### 7. Product Roadmap Enforcement
+### 8. Product Roadmap Enforcement
 
 **Before Any Grooming:**
 1. Read `docs/PRODUCT-REQUIREMENTS.md` for current goals
@@ -409,6 +443,12 @@ I've added a comment requesting these details. Once updated, this will be [prior
 - [ ] References PRD/Roadmap (which phase, why now)
 - [ ] Specific, testable acceptance criteria
 - [ ] Technical guidance (files, components, architecture)
+
+**Agentic PRD Lite Power Sections (see `docs/TICKET-FORMAT.md`):**
+- [ ] Environment context populated (from `docs/TECHNICAL-ARCHITECTURE.md`)
+- [ ] Guardrails defined (from `docs/AGENTIC-CONTROLS.md` and PRD constraints)
+- [ ] Happy path described (Input → Logic → Output flow)
+- [ ] Definition of Done is concrete (specific tests/assertions, not vague)
 
 **Execution Readiness:**
 - [ ] Dependencies resolved or documented

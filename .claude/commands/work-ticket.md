@@ -4,6 +4,8 @@ description: Pick up and work on the next ticket from the Ready column
 
 Launch the github-ticket-worker agent to implement the next prioritized ticket.
 
+> **Reference**: See `docs/TICKET-FORMAT.md` for the expected ticket format.
+
 ## Critical Rules
 
 1. **Branch from main**: `feature/issue-{number}-short-description`
@@ -17,12 +19,20 @@ Launch the github-ticket-worker agent to implement the next prioritized ticket.
 ## Workflow Steps
 
 1. **Select Ticket** — Find top priority in Ready column, verify Definition of Ready, confirm no blockers
-2. **Setup** — Create branch, move to In Progress
-3. **Implement** — Follow CLAUDE.md standards, write clean code, follow existing patterns
-4. **Test Locally** — Run lint and tests. Do NOT push if any fail.
-5. **Push** — If pre-push hook fails, fix and retry (see Reference below)
-6. **Create PR** — Detailed description, link to issue
-7. **Monitor CI** — Watch checks, auto-fix failures, move to In Review when green
+2. **Validate Ticket Format** — Check the ticket body for the 4 Power Sections:
+   - **A. Environment Context**, **B. Guardrails**, **C. Happy Path**, **D. Definition of Done**
+   - If any section is missing or empty:
+     1. Read `docs/TECHNICAL-ARCHITECTURE.md`, `docs/PRODUCT-REQUIREMENTS.md`, and the parent epic
+     2. Fill in the missing sections (best-effort)
+     3. Update the GitHub issue with the fleshed-out version
+     4. Present the completed spec to the user for confirmation before coding
+   - If all 4 sections are present → proceed normally (no delay)
+3. **Setup** — Create branch, move to In Progress
+4. **Implement** — Follow CLAUDE.md standards, write clean code, follow existing patterns
+5. **Test Locally** — Run lint and tests. Do NOT push if any fail.
+6. **Push** — If pre-push hook fails, fix and retry (see Reference below)
+7. **Create PR** — Detailed description, link to issue
+8. **Monitor CI** — Watch checks, auto-fix failures, move to In Review when green
 
 ## Usage
 

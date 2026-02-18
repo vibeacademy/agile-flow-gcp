@@ -21,18 +21,29 @@ Launch the agile-backlog-prioritizer agent to perform comprehensive backlog groo
    - Weight by user impact and business value
    - Consider feature dependencies
 
-4. **Ensure Definition of Ready**
+4. **Assess Ticket Scope**
+   - For each ticket being promoted to Ready, check:
+     - One ticket = one deployable change (single PR)
+     - If >3 files for unrelated reasons → flag for decomposition
+     - If environment context exceeds 4 sentences → flag for decomposition
+     - If happy path has >1 major branch point → flag for splitting
+     - If effort estimate is XL → recommend breaking into smaller tickets
+   - Tickets that fail scoping should be decomposed on the spot (create child issues) rather than promoted to Ready
+
+5. **Ensure Definition of Ready**
    - Verify top tickets have clear titles and descriptions
    - Confirm acceptance criteria are specific and testable
    - Check effort estimates and priority labels
    - Validate technical guidance is provided
+   - Verify tickets include the 4 Power Sections (A. Environment Context, B. Guardrails, C. Happy Path, D. Definition of Done)
+   - Reference `docs/TICKET-FORMAT.md` for the expected format
 
-5. **Populate Ready Column**
+6. **Populate Ready Column**
    - Move top 2-5 well-defined tickets to Ready
    - Balance quick wins with strategic features
    - Ensure no blockers on Ready items
 
-6. **Identify Issues**
+7. **Identify Issues**
    - Flag tickets needing refinement
    - Identify dependency conflicts
    - Note scope creep or misalignment with roadmap
@@ -50,5 +61,8 @@ The agent will report:
 - Backlog health metrics
 - Top priorities moved to Ready
 - Tickets needing refinement
+- Scoping issues: tickets flagged for decomposition (too broad for single-PR agent implementation)
 - Blockers and risks
 - Recommendations for next grooming session
+
+See `docs/TICKET-FORMAT.md` for the canonical ticket format specification.
