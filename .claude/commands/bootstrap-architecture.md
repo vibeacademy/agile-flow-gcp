@@ -63,6 +63,7 @@ MUST clean up the default Python scaffolding before proceeding:
 3. **Scaffold a minimal starter app**: Include at minimum:
    - A `/health` endpoint returning `{"status": "ok"}`
    - A `/error` endpoint that raises a deliberate error (for Sentry testing)
+   - The **error receiver** (see below)
    - One passing test
 4. **Update `CLAUDE.md`**: Replace the build/test commands section with
    commands for the new stack.
@@ -88,6 +89,55 @@ non-interactive flags to avoid blocking the agent:
 | `npm init` | `--yes` or `-y` |
 | `create-vite` | Pass all options via CLI flags |
 | `go mod init` | Non-interactive by default |
+
+### Error Receiver (Required for All Stacks)
+
+The Python starter includes an error receiver (`app/error_receiver.py`)
+that enables zero-config error telemetry. When switching stacks, you MUST
+port this functionality. The receiver has four responsibilities:
+
+1. **Self-DSN construction** — On startup, if no `SENTRY_DSN` env var is
+   set, construct a DSN pointing back at the app itself using
+   `RENDER_EXTERNAL_URL` (or `APP_URL` as fallback). Format:
+   `https://self@{host}/api/error-events/0`. Initialize the Sentry SDK
+   with this DSN so unhandled exceptions are sent to the app's own
+   endpoint.
+
+2. **Envelope endpoint** — `POST /api/error-events` (and
+   `/api/error-events/{project_id}`) accepts Sentry envelope format
+   (newline-delimited JSON). Parse the envelope to extract exception
+   type, message, stacktrace, environment, and timestamp. Always return
+   HTTP 200 (prevents SDK retries).
+
+3. **GitHub issue creation** — When an error is received, create a GitHub
+   issue via `POST /repos/{owner}/{repo}/issues` with label `bug:auto`.
+   Requires `GITHUB_TOKEN` and `GITHUB_REPOSITORY` env vars. Issue title:
+   `bug: {ExceptionType}: {message}`. Body includes error details and
+   stacktrace in a code block.
+
+4. **Rate limiting** — At most one issue per unique error message per
+   hour. Use in-memory tracking (no external dependency needed).
+
+**Environment variables** (document in your app's README or config):
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SENTRY_DSN` | No | External Sentry DSN (bypasses self-receiver) |
+| `RENDER_EXTERNAL_URL` | Auto | Provided by Render; used to build self-DSN |
+| `APP_URL` | No | Fallback if not on Render |
+| `GITHUB_TOKEN` | Yes | Creates GitHub issues from errors |
+| `GITHUB_REPOSITORY` | Yes | Target repo, e.g. `org/repo` |
+
+**Stack-specific Sentry SDKs:**
+
+| Stack | Package | Init Example |
+|-------|---------|-------------|
+| Next.js | `@sentry/nextjs` | `Sentry.init({ dsn })` in `instrumentation.ts` |
+| Express | `@sentry/node` | `Sentry.init({ dsn })` before app setup |
+| Go | `sentry-go` | `sentry.Init(sentry.ClientOptions{Dsn: dsn})` |
+
+Reference the Python implementation in the git history (`app/main.py`
+and `app/error_receiver.py` at the initial commit) for exact behavior.
 
 ### 1. PRD Analysis
 The architect first analyzes your Product Requirements:
