@@ -9,6 +9,7 @@
 5. **Switch accounts before PR operations.** The `.claude/hooks/ensure-github-account.sh` hook handles this automatically.
 6. **No emojis in ASCII tables.** They break column alignment. Emojis OK in prose and headings.
 7. **One canonical location per fact.** Don't duplicate content across CLAUDE.md, agent files, and skills.
+8. **Never hardcode application URLs.** Use `window.location.origin` (client-side) or request headers (server-side) so code works in both production and PR preview environments.
 
 ---
 

@@ -412,6 +412,7 @@ The following issues are grounds for immediate rejection:
 
 **Critical:**
 - Hardcoded secrets or API keys
+- Hardcoded application URLs (must use `window.location.origin` or request headers — hardcoded URLs break PR preview environments)
 - Security vulnerabilities (XSS, code injection)
 - Failing tests or build errors
 - Type errors without justification (if applicable)
