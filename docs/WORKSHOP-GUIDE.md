@@ -23,9 +23,14 @@ steps.
 - [ ] Supabase GitHub integration enabled for their org
 - [ ] Git, Node.js 18+, Python 3.11+, uv installed
 
+### Instructor Setup (Repository)
+
+- [ ] Verify `agile-flow` repo has **template repository** enabled
+      (Settings > General > Template repository checkbox)
+
 ### Per Participant (During Workshop)
 
-- [ ] Fork of `agile-flow` repository
+- [ ] Own copy of `agile-flow` created via **"Use this template"** (not fork)
 - [ ] `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` added to repo secrets
 - [ ] Render account with service created
 - [ ] `RENDER_API_KEY` and `RENDER_SERVICE_ID` added to repo secrets
@@ -61,7 +66,7 @@ For each bot account, create a fine-grained personal access token:
 
 1. Go to **Settings > Developer settings > Personal access tokens > Fine-grained**
 2. Token name: `agile-flow-workshop`
-3. Repository access: Select the participant's fork
+3. Repository access: Select the participant's repository
 4. Permissions:
 
 | Permission | Worker Bot | Reviewer Bot |
@@ -124,7 +129,7 @@ Note: Sentry SaaS is optional. The app ships with zero-config error telemetry th
 
 | Time | Activity | Commands Used |
 |------|----------|---------------|
-| 0:00-0:30 | Introduction and setup verification | `gh auth status` |
+| 0:00-0:30 | Introduction, `/doctor` diagnostic, setup verification | `/doctor`, `gh auth status` |
 | 0:30-1:00 | Product definition | `/bootstrap-product` |
 | 1:00-1:30 | Technical architecture | `/bootstrap-architecture` |
 | 1:30-2:00 | Agent specialization | `/bootstrap-agents` |
@@ -134,9 +139,10 @@ Note: Sentry SaaS is optional. The app ships with zero-config error telemetry th
 | 3:30-4:00 | Trigger deliberate error, verify auto-created issue | `curl /error`, `gh issue list` |
 
 **Day 1 Success Criteria:**
+- `/doctor` reports zero FAILs
 - App deployed to Render
 - Health check endpoint returns `{"status": "ok"}`
-- Sentry receives the deliberate error
+- Deliberate error auto-creates a GitHub issue
 - First PR created and merged
 
 ### Day 2: Development Workflow (4 hours)
@@ -255,6 +261,9 @@ git push origin <branch> --force-with-lease
 
 ```text
 Participant is stuck
+  |
+  +--> Run /doctor (or bash scripts/doctor.sh) first
+  |      --> Fixes most setup issues with actionable instructions
   |
   +--> Can't push code?
   |      --> Check: git status, git remote -v

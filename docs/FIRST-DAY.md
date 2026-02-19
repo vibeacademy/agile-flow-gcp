@@ -1,4 +1,4 @@
-# Day 1 Walkthrough: Fork to Production Bug Ticket
+# Day 1 Walkthrough: Template to Production Bug Ticket
 
 This is a step-by-step guide for workshop participants. It assumes you have
 already completed the bootstrap wizard (`bash bootstrap.sh`, Phases 0-3) and
@@ -8,10 +8,10 @@ plans and troubleshooting flowcharts.
 
 By the end of Day 1, you will have:
 
-- A forked repo with a live project board
+- Your own repo (from the template) with a live project board
 - A deployed app on Render with a working health check
 - A pull request created by an agent, reviewed by an agent, merged by you
-- A deliberate error captured in Sentry with a bug ticket on your board
+- A deliberate error captured with a bug ticket auto-created on your board
 
 ---
 
@@ -24,24 +24,33 @@ Before you start, confirm:
 - Claude Code CLI installed and authenticated
 - MCP servers working — run `claude` and verify `github` and `memory` servers connect
 - `GITHUB_PERSONAL_ACCESS_TOKEN` exported with `repo` + `project` scopes
-- Render account created, service connected to your fork
-- Sentry project created with DSN added to Render environment variables
+- Render account created, service connected to your repo
+- Run `/doctor` in Claude Code (or `bash scripts/doctor.sh`) to verify your setup
 
 ---
 
-## Step 1: Fork the Agile Flow Repo
+## Step 1: Create Your Repo from the Template
 
-Go to the template repository on GitHub and click **Fork**. Keep the default
-settings and fork into your personal account or organization.
+Go to the template repository on GitHub and click **Use this template >
+Create a new repository**. Choose your organization as the owner and give
+it a name (e.g., `agile-flow`).
 
-You should see: Your own copy of the repo at
+> **Why "Use this template" instead of Fork?** A template creates a fresh
+> repo with no upstream link, its own issue tracker, and its own project
+> board — exactly what you need for the workshop.
+
+You should see: Your own repo at
 `https://github.com/{your-org}/agile-flow`.
 
 ---
 
 ## Step 2: Clone and Verify Local Setup
 
+> **Important:** `cd` to the directory where you want your project *before*
+> cloning. A common mistake is cloning inside another repo.
+
 ```bash
+cd ~/projects   # or wherever you keep repos
 git clone https://github.com/{your-org}/agile-flow.git
 cd agile-flow
 ```
@@ -60,6 +69,15 @@ git config core.hooksPath scripts/hooks
 ```
 
 You should see: No output (silence means success).
+
+Run the diagnostic to verify your local setup:
+
+```bash
+bash scripts/doctor.sh
+```
+
+You should see: A list of `[PASS]` checks with a summary at the end. Fix
+any `[FAIL]` items before continuing.
 
 ---
 
@@ -496,7 +514,7 @@ with history and alerts, see the upgrade options in
 
 Verify you have completed each item:
 
-- [ ] Forked the repo and cloned it locally
+- [ ] Created repo from template and cloned it locally
 - [ ] All three accounts show up in `gh auth status`
 - [ ] Environment variables `AGILE_FLOW_WORKER_ACCOUNT` and
       `AGILE_FLOW_REVIEWER_ACCOUNT` are set
@@ -526,6 +544,13 @@ Verify you have completed each item:
 ---
 
 ## If You Get Stuck
+
+Run the diagnostic first — it catches most setup issues:
+
+```bash
+bash scripts/doctor.sh    # standalone
+/doctor                    # in Claude Code (adds remote checks)
+```
 
 Check the account:
 

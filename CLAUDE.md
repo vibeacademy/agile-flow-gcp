@@ -157,6 +157,7 @@ approved, tests passing, no lint errors, PR merged to main.
 | `docs/ARTIFACT-FLOW.md` | Artifact flow diagrams and authority matrix |
 | `docs/AGENT-WORKFLOW-SUMMARY.md` | Complete workflow documentation |
 | `docs/MAINTENANCE.md` | Weekly audit and maintenance guide |
+| `scripts/doctor.sh` | Local diagnostic script (standalone) |
 
 ### Slash Commands
 
@@ -172,3 +173,4 @@ approved, tests passing, no lint errors, PR merged to main.
 | `/test-feature` | Create test plan and validate |
 | `/architect-review` | Architectural guidance |
 | `/lock-scope` | Lock MVP scope |
+| `/doctor` | Environment health check (local + remote) |

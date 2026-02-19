@@ -1,0 +1,430 @@
+#!/bin/bash
+#
+# Agile Flow Doctor — Local Diagnostic Script
+#
+# Validates the full configuration needed for the workshop:
+#   CLI tools, git config, GitHub auth, MCP config, Claude settings,
+#   CLAUDE.md placeholders, bootstrap status, and docs.
+#
+# Usage:
+#   bash scripts/doctor.sh          # standalone
+#   /doctor                         # via Claude Code slash command (adds remote checks)
+#
+# Output format per check:
+#   [PASS] Category: Description
+#   [FAIL] Category: Description — fix instruction
+#   [WARN] Category: Description — optional guidance
+#   [SKIP] Category: Description — reason
+#
+# Ends with a machine-readable summary block for the slash command to parse.
+
+set -uo pipefail
+
+# Ensure bash even if invoked as `zsh scripts/doctor.sh`
+if [ -z "$BASH_VERSION" ]; then
+    exec bash "$0" "$@"
+fi
+
+# ───────────────────────────────────────────────────────────────────
+#  Colors
+# ───────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# ───────────────────────────────────────────────────────────────────
+#  Counters
+# ───────────────────────────────────────────────────────────────────
+PASS_COUNT=0
+FAIL_COUNT=0
+WARN_COUNT=0
+SKIP_COUNT=0
+FAIL_DESCRIPTIONS=""
+WARN_DESCRIPTIONS=""
+
+# ───────────────────────────────────────────────────────────────────
+#  Output helpers
+# ───────────────────────────────────────────────────────────────────
+pass() {
+    echo -e "${GREEN}[PASS]${NC} $1: $2"
+    PASS_COUNT=$((PASS_COUNT + 1))
+}
+
+fail() {
+    echo -e "${RED}[FAIL]${NC} $1: $2 — $3"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    if [ -n "$FAIL_DESCRIPTIONS" ]; then
+        FAIL_DESCRIPTIONS="${FAIL_DESCRIPTIONS}|$2"
+    else
+        FAIL_DESCRIPTIONS="$2"
+    fi
+}
+
+warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1: $2 — $3"
+    WARN_COUNT=$((WARN_COUNT + 1))
+    if [ -n "$WARN_DESCRIPTIONS" ]; then
+        WARN_DESCRIPTIONS="${WARN_DESCRIPTIONS}|$2"
+    else
+        WARN_DESCRIPTIONS="$2"
+    fi
+}
+
+skip() {
+    echo -e "${BLUE}[SKIP]${NC} $1: $2 — $3"
+    SKIP_COUNT=$((SKIP_COUNT + 1))
+}
+
+section() {
+    echo ""
+    echo -e "${CYAN}━━━ $1 ━━━${NC}"
+}
+
+# ───────────────────────────────────────────────────────────────────
+#  Header
+# ───────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}              ${BLUE}Agile Flow Doctor${NC}                              ${CYAN}║${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# ═══════════════════════════════════════════════════════════════════
+#  1. CLI Tools
+# ═══════════════════════════════════════════════════════════════════
+section "CLI Tools"
+
+# git (FAIL)
+if command -v git &>/dev/null; then
+    pass "CLI Tools" "git found ($(git --version | head -1))"
+else
+    fail "CLI Tools" "git not found" "Install from https://git-scm.com/downloads"
+fi
+
+# gh (FAIL)
+if command -v gh &>/dev/null; then
+    pass "CLI Tools" "gh found ($(gh --version | head -1))"
+else
+    fail "CLI Tools" "gh not found" "brew install gh  or  https://cli.github.com"
+fi
+
+# claude (FAIL) — check both PATH and ~/.claude/local/claude
+if command -v claude &>/dev/null; then
+    pass "CLI Tools" "claude found at $(command -v claude)"
+elif [ -x "$HOME/.claude/local/claude" ]; then
+    warn "CLI Tools" "claude found at ~/.claude/local/claude but not in PATH" "Add ~/.claude/local to your PATH"
+else
+    fail "CLI Tools" "claude not found" "npm install -g @anthropic-ai/claude-code"
+fi
+
+# jq (FAIL)
+if command -v jq &>/dev/null; then
+    pass "CLI Tools" "jq found"
+else
+    fail "CLI Tools" "jq not found" "brew install jq  or  https://jqlang.github.io/jq/download/"
+fi
+
+# npx (WARN)
+if command -v npx &>/dev/null; then
+    pass "CLI Tools" "npx found"
+else
+    warn "CLI Tools" "npx not found" "Install Node.js from https://nodejs.org (needed for MCP servers)"
+fi
+
+# uv — WARN if pyproject.toml exists
+if [ -f "pyproject.toml" ]; then
+    if command -v uv &>/dev/null; then
+        pass "CLI Tools" "uv found (Python project detected)"
+    else
+        warn "CLI Tools" "uv not found but pyproject.toml exists" "curl -LsSf https://astral.sh/uv/install.sh | sh"
+    fi
+fi
+
+# node — WARN if package.json exists
+if [ -f "package.json" ]; then
+    if command -v node &>/dev/null; then
+        pass "CLI Tools" "node found ($(node --version))"
+    else
+        warn "CLI Tools" "node not found but package.json exists" "Install from https://nodejs.org"
+    fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+#  2. Git Config
+# ═══════════════════════════════════════════════════════════════════
+section "Git Config"
+
+# user.name (FAIL)
+git_name=$(git config user.name 2>/dev/null || true)
+if [ -n "$git_name" ]; then
+    pass "Git Config" "user.name set: $git_name"
+else
+    fail "Git Config" "user.name not set" "git config --global user.name \"Your Name\""
+fi
+
+# user.email (FAIL)
+git_email=$(git config user.email 2>/dev/null || true)
+if [ -n "$git_email" ]; then
+    pass "Git Config" "user.email set: $git_email"
+else
+    fail "Git Config" "user.email not set" "git config --global user.email \"you@example.com\""
+fi
+
+# core.hooksPath (WARN)
+hooks_path=$(git config --local core.hooksPath 2>/dev/null || true)
+if [ "$hooks_path" = "scripts/hooks" ]; then
+    pass "Git Config" "core.hooksPath set to scripts/hooks"
+else
+    warn "Git Config" "core.hooksPath is '${hooks_path:-unset}' (expected scripts/hooks)" "git config --local core.hooksPath scripts/hooks"
+fi
+
+# pre-push exists + executable (WARN)
+if [ -f "scripts/hooks/pre-push" ]; then
+    if [ -x "scripts/hooks/pre-push" ]; then
+        pass "Git Config" "pre-push hook exists and is executable"
+    else
+        warn "Git Config" "pre-push hook exists but is not executable" "chmod +x scripts/hooks/pre-push"
+    fi
+else
+    warn "Git Config" "pre-push hook not found at scripts/hooks/pre-push" "The hook enforces lint+test before push"
+fi
+
+# remote origin (WARN)
+remote_url=$(git remote get-url origin 2>/dev/null || true)
+if [ -n "$remote_url" ]; then
+    pass "Git Config" "remote origin set: $remote_url"
+else
+    warn "Git Config" "No remote origin configured" "git remote add origin <url>"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+#  3. GitHub Auth
+# ═══════════════════════════════════════════════════════════════════
+section "GitHub Auth"
+
+if ! command -v gh &>/dev/null; then
+    skip "GitHub Auth" "All checks" "gh CLI not installed"
+else
+
+# Save current gh user for safe restore after switch tests
+ORIGINAL_GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
+
+# Human account (FAIL)
+if gh auth status &>/dev/null 2>&1; then
+    current_user=$(gh api user --jq '.login' 2>/dev/null || echo "unknown")
+    pass "GitHub Auth" "Human account authenticated: $current_user"
+else
+    fail "GitHub Auth" "Not authenticated with gh" "Run: gh auth login"
+fi
+
+# AGILE_FLOW_WORKER_ACCOUNT (WARN)
+if [ -n "${AGILE_FLOW_WORKER_ACCOUNT:-}" ]; then
+    pass "GitHub Auth" "AGILE_FLOW_WORKER_ACCOUNT set: $AGILE_FLOW_WORKER_ACCOUNT"
+
+    # Test worker account is in keyring
+    if gh auth switch --user "$AGILE_FLOW_WORKER_ACCOUNT" &>/dev/null 2>&1; then
+        pass "GitHub Auth" "Worker account ($AGILE_FLOW_WORKER_ACCOUNT) in gh keyring"
+        # Restore original user
+        if [ -n "$ORIGINAL_GH_USER" ]; then
+            gh auth switch --user "$ORIGINAL_GH_USER" &>/dev/null 2>&1 || true
+        fi
+    else
+        warn "GitHub Auth" "Worker account ($AGILE_FLOW_WORKER_ACCOUNT) not in gh keyring" "Run: gh auth login for this account"
+    fi
+else
+    warn "GitHub Auth" "AGILE_FLOW_WORKER_ACCOUNT not set" "export AGILE_FLOW_WORKER_ACCOUNT=\"{org}-worker\""
+fi
+
+# AGILE_FLOW_REVIEWER_ACCOUNT (WARN)
+if [ -n "${AGILE_FLOW_REVIEWER_ACCOUNT:-}" ]; then
+    pass "GitHub Auth" "AGILE_FLOW_REVIEWER_ACCOUNT set: $AGILE_FLOW_REVIEWER_ACCOUNT"
+
+    # Test reviewer account is in keyring
+    if gh auth switch --user "$AGILE_FLOW_REVIEWER_ACCOUNT" &>/dev/null 2>&1; then
+        pass "GitHub Auth" "Reviewer account ($AGILE_FLOW_REVIEWER_ACCOUNT) in gh keyring"
+        # Restore original user
+        if [ -n "$ORIGINAL_GH_USER" ]; then
+            gh auth switch --user "$ORIGINAL_GH_USER" &>/dev/null 2>&1 || true
+        fi
+    else
+        warn "GitHub Auth" "Reviewer account ($AGILE_FLOW_REVIEWER_ACCOUNT) not in gh keyring" "Run: gh auth login for this account"
+    fi
+else
+    warn "GitHub Auth" "AGILE_FLOW_REVIEWER_ACCOUNT not set" "export AGILE_FLOW_REVIEWER_ACCOUNT=\"{org}-reviewer\""
+fi
+
+# Final restore — ensure we always end on the original user
+if [ -n "$ORIGINAL_GH_USER" ]; then
+    gh auth switch --user "$ORIGINAL_GH_USER" &>/dev/null 2>&1 || true
+fi
+
+fi  # end gh guard
+
+# ═══════════════════════════════════════════════════════════════════
+#  4. MCP Config
+# ═══════════════════════════════════════════════════════════════════
+section "MCP Config"
+
+# .mcp.json exists (FAIL)
+if [ -f ".mcp.json" ]; then
+    pass "MCP Config" ".mcp.json exists"
+
+    if ! command -v jq &>/dev/null; then
+        skip "MCP Config" "Content checks (github server, memory server, npx path)" "jq not installed"
+    else
+        # github server (FAIL)
+        if jq -e '.mcpServers.github' .mcp.json &>/dev/null; then
+            pass "MCP Config" "github server configured"
+        else
+            fail "MCP Config" "github server missing from .mcp.json" "Run bootstrap.sh Phase 0 or add github server manually"
+        fi
+
+        # memory server (WARN)
+        if jq -e '.mcpServers.memory' .mcp.json &>/dev/null; then
+            pass "MCP Config" "memory server configured"
+        else
+            warn "MCP Config" "memory server missing from .mcp.json" "Optional but recommended for agent context"
+        fi
+
+        # npx path resolves (WARN)
+        mcp_npx_path=$(jq -r '.mcpServers.github.command // empty' .mcp.json 2>/dev/null)
+        if [ -n "$mcp_npx_path" ]; then
+            if [ -x "$mcp_npx_path" ] || command -v "$mcp_npx_path" &>/dev/null; then
+                pass "MCP Config" "npx command in .mcp.json resolves: $mcp_npx_path"
+            else
+                warn "MCP Config" "npx path in .mcp.json does not resolve: $mcp_npx_path" "Update .mcp.json command path or install npx"
+            fi
+        fi
+    fi  # end jq guard
+else
+    fail "MCP Config" ".mcp.json not found" "Run bootstrap.sh Phase 0 to create it"
+fi
+
+# GITHUB_PERSONAL_ACCESS_TOKEN (FAIL)
+if [ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]; then
+    # Mask the token in output — guard against short tokens
+    if [ ${#GITHUB_PERSONAL_ACCESS_TOKEN} -ge 12 ]; then
+        token_preview="${GITHUB_PERSONAL_ACCESS_TOKEN:0:4}...${GITHUB_PERSONAL_ACCESS_TOKEN: -4}"
+    else
+        token_preview="(set, ${#GITHUB_PERSONAL_ACCESS_TOKEN} chars)"
+    fi
+    pass "MCP Config" "GITHUB_PERSONAL_ACCESS_TOKEN set ($token_preview)"
+else
+    fail "MCP Config" "GITHUB_PERSONAL_ACCESS_TOKEN not set" "export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_... (needs repo + project scopes)"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+#  5. Claude Settings
+# ═══════════════════════════════════════════════════════════════════
+section "Claude Settings"
+
+settings_file=".claude/settings.local.json"
+if [ -f "$settings_file" ]; then
+    pass "Claude Settings" "$settings_file exists"
+
+    # merge-PR deny rule (WARN)
+    if jq -e '.deny // [] | map(select(test("merge|Merge";"i"))) | length > 0' "$settings_file" &>/dev/null 2>&1; then
+        pass "Claude Settings" "Merge-PR deny rule present"
+    else
+        warn "Claude Settings" "No merge-PR deny rule found" "Add a deny rule to prevent agents from merging PRs"
+    fi
+
+    # .env read deny rule (WARN)
+    if jq -e '.deny // [] | map(select(test("\\.env|dotenv";"i"))) | length > 0' "$settings_file" &>/dev/null 2>&1; then
+        pass "Claude Settings" ".env read deny rule present"
+    else
+        warn "Claude Settings" "No .env read deny rule found" "Add a deny rule to prevent agents from reading .env files"
+    fi
+else
+    if [ -f ".claude/settings.template.json" ]; then
+        warn "Claude Settings" "$settings_file not found (template exists)" "cp .claude/settings.template.json $settings_file"
+    else
+        warn "Claude Settings" "$settings_file not found" "Create it with appropriate deny rules for agent safety"
+    fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+#  6. CLAUDE.md
+# ═══════════════════════════════════════════════════════════════════
+section "CLAUDE.md"
+
+if [ -f "CLAUDE.md" ]; then
+    # Placeholder text check (WARN)
+    if grep -q '\[Your project name\]' CLAUDE.md 2>/dev/null; then
+        warn "CLAUDE.md" "Placeholder text found: [Your project name]" "Fill in project-specific details in CLAUDE.md"
+    else
+        pass "CLAUDE.md" "No placeholder text found"
+    fi
+
+    # Build commands populated (WARN)
+    if grep -q '^\(uv run\|npm run\|yarn\|pnpm\|bun\|go \|make\|cargo\)' CLAUDE.md 2>/dev/null || \
+       grep -q 'Dev server\|Lint\|Tests' CLAUDE.md 2>/dev/null; then
+        pass "CLAUDE.md" "Build commands appear populated"
+    else
+        warn "CLAUDE.md" "Build commands may not be populated" "Fill in the Build & Test Commands section in CLAUDE.md"
+    fi
+else
+    warn "CLAUDE.md" "CLAUDE.md not found" "This file is required for agent context"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+#  7. Bootstrap Status
+# ═══════════════════════════════════════════════════════════════════
+section "Bootstrap Status"
+
+STATUS_FILE=".claude/.bootstrap-status"
+if [ -f "$STATUS_FILE" ]; then
+    pass "Bootstrap" ".bootstrap-status file exists"
+
+    for phase in phase0 phase1 phase2 phase3; do
+        if grep -q "^${phase}:complete$" "$STATUS_FILE" 2>/dev/null; then
+            pass "Bootstrap" "$phase complete"
+        else
+            warn "Bootstrap" "$phase not complete" "Run: bash bootstrap.sh and complete $phase"
+        fi
+    done
+else
+    warn "Bootstrap" ".bootstrap-status not found" "Run: bash bootstrap.sh to start the bootstrap wizard"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+#  8. Docs
+# ═══════════════════════════════════════════════════════════════════
+section "Docs"
+
+for doc in PRODUCT-REQUIREMENTS.md PRODUCT-ROADMAP.md TECHNICAL-ARCHITECTURE.md; do
+    if [ -f "docs/$doc" ]; then
+        pass "Docs" "docs/$doc exists"
+    else
+        warn "Docs" "docs/$doc not found" "Created during bootstrap Phase 1-2"
+    fi
+done
+
+# ═══════════════════════════════════════════════════════════════════
+#  Summary
+# ═══════════════════════════════════════════════════════════════════
+echo ""
+echo -e "${CYAN}━━━ Summary ━━━${NC}"
+echo ""
+echo -e "  ${GREEN}PASS${NC}: $PASS_COUNT    ${YELLOW}WARN${NC}: $WARN_COUNT    ${RED}FAIL${NC}: $FAIL_COUNT    ${BLUE}SKIP${NC}: $SKIP_COUNT"
+echo ""
+
+if [ "$FAIL_COUNT" -eq 0 ] && [ "$WARN_COUNT" -eq 0 ]; then
+    echo -e "${GREEN}All checks passed. Ready for workshop!${NC}"
+elif [ "$FAIL_COUNT" -eq 0 ]; then
+    echo -e "${YELLOW}No failures, but $WARN_COUNT warning(s) to review.${NC}"
+else
+    echo -e "${RED}$FAIL_COUNT failure(s) must be fixed before the workshop.${NC}"
+fi
+
+echo ""
+
+# Machine-readable summary for the /doctor slash command
+echo "=== DOCTOR_SUMMARY ==="
+echo "PASS: $PASS_COUNT  WARN: $WARN_COUNT  FAIL: $FAIL_COUNT  SKIP: $SKIP_COUNT"
+echo "FAILS: $FAIL_DESCRIPTIONS"
+echo "WARNS: $WARN_DESCRIPTIONS"
+echo "=== END_SUMMARY ==="

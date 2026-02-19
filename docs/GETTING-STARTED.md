@@ -44,7 +44,7 @@ mkdir my-project
 cd my-project
 
 # Download the Agile Flow template into that folder
-# (replace the URL with your own fork if you have one)
+# (replace the URL with your own copy if you have one)
 git clone https://github.com/your-org/agile-flow.git .
 
 # Remove the template's history so you start fresh
