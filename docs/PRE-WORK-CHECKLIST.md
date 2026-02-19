@@ -156,6 +156,9 @@ Then reload your shell:
 source ~/.zshrc  # or source ~/.bashrc
 ```
 
+> **Quick setup**: If you already have all three PATs, run
+> `bash scripts/setup-accounts.sh` to configure all accounts in one step.
+
 ---
 
 ## 5. Claude Code CLI

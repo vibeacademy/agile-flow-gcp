@@ -102,6 +102,9 @@ your Render service in Step 5), but `SUPABASE_ACCESS_TOKEN` and
 
 ## Step 3: Verify Three Accounts Work
 
+> **Tip**: If any account is missing, run
+> `bash scripts/setup-accounts.sh` to configure all three at once.
+
 All three accounts must be logged into the GitHub CLI. Run:
 
 ```bash

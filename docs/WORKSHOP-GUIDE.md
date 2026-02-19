@@ -79,6 +79,10 @@ For each bot account, create a fine-grained personal access token:
 
 ### Configuring Account Switching
 
+**Recommended**: Run `bash scripts/setup-accounts.sh` which handles
+login, environment variables, and verification in one step. The manual
+commands below are an alternative if the script isn't available.
+
 Add bot accounts to `gh auth`:
 
 ```bash
