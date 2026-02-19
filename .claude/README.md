@@ -72,13 +72,16 @@ Create two bot accounts for your organization:
 
 **Purpose:** Creates code changes, branches, and pull requests
 
-**Recommended Permissions:**
-- Repository access: Write
-- Fine-grained PAT permissions:
-  - Contents: Read and write (for branches)
-  - Issues: Read and write
-  - Pull requests: Read and write
-  - Metadata: Read-only
+**Recommended Permissions (Classic PAT):**
+- `repo` — full repository access (branches, PRs, issues)
+- `project` — project board access (moving tickets between columns)
+
+**Recommended Permissions (Fine-Grained PAT):**
+- Contents: Read and write (for branches)
+- Issues: Read and write
+- Pull requests: Read and write
+- Metadata: Read-only
+- Projects: Read and write
 
 **What the worker bot CAN do:**
 - Create feature branches
@@ -96,13 +99,16 @@ Create two bot accounts for your organization:
 
 **Purpose:** Reviews pull requests and provides GO/NO-GO recommendations
 
-**Recommended Permissions:**
-- Repository access: Write (required for approvals to count)
-- Fine-grained PAT permissions:
-  - Contents: Read-only
-  - Issues: Read and write
-  - Pull requests: Read and write
-  - Metadata: Read-only
+**Recommended Permissions (Classic PAT):**
+- `repo` — full repository access (PR reviews, approvals)
+- `project` — project board access (reading ticket status)
+
+**Recommended Permissions (Fine-Grained PAT):**
+- Contents: Read-only
+- Issues: Read and write
+- Pull requests: Read and write
+- Metadata: Read-only
+- Projects: Read and write (required for approvals to count)
 
 **What the reviewer bot CAN do:**
 - Review pull requests

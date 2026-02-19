@@ -90,6 +90,52 @@ You should see your token printed back.
 
 ---
 
+## Step 2b: Configure Claude Code MCP Servers
+
+Claude Code uses MCP (Model Context Protocol) servers to interact with
+GitHub, persist agent memory, and perform structured reasoning. The
+bootstrap wizard creates a `.mcp.json` file for you, but the GitHub
+server requires a personal access token.
+
+### Create your `GITHUB_PERSONAL_ACCESS_TOKEN`
+
+1. Go to <https://github.com/settings/tokens>.
+2. Click **"Generate new token (classic)"**.
+3. Check the **`repo`** and **`project`** scope boxes.
+   - `repo` — lets agents read/write code, issues, and pull requests.
+   - `project` — lets agents move tickets on the project board.
+4. Click **Generate token** and copy it.
+5. Add it to your shell profile:
+
+```bash
+echo 'export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxxxx' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### MCP Servers
+
+| Server | Required? | What It Does | Token |
+|--------|-----------|--------------|-------|
+| `github` | Yes | Issue/PR management, project board | `GITHUB_PERSONAL_ACCESS_TOKEN` |
+| `memory` | Yes | Agent context persistence across sessions | none |
+| `sequential-thinking` | No | Structured reasoning for complex tasks | none |
+
+### Verify MCP is working
+
+After running `claude` for the first time, you should see MCP servers
+listed in the startup output. If the github server fails to connect,
+check that your token is exported in the current terminal session:
+
+```bash
+echo $GITHUB_PERSONAL_ACCESS_TOKEN
+```
+
+> **Bot accounts**: If you are using separate worker and reviewer bot
+> accounts, each bot's PAT also needs `repo` + `project` scopes. See
+> `.claude/README.md` for full bot account setup.
+
+---
+
 ## Step 3: Run the Bootstrap Wizard
 
 The bootstrap wizard walks you through setting up your project in four
@@ -97,7 +143,7 @@ phases. It asks you questions and generates configuration files based on
 your answers.
 
 ```bash
-./bootstrap.sh
+bash bootstrap.sh
 ```
 
 **You should see:** A welcome screen with four phases listed.
@@ -168,21 +214,30 @@ Ready, In Progress, In Review, and Done.
 
 ## Step 4: Protect Your Main Branch
 
-This step makes sure nobody (including the AI) can push changes directly
-to your main codebase without review. You do this once in GitHub settings.
+The bootstrap wizard (`bash bootstrap.sh`, Phase 4) automatically
+creates a GitHub **Ruleset** that protects your `main` branch. It
+requires pull requests and passing status checks before code can be
+merged.
+
+If the automated step fails (e.g., insufficient permissions), you can
+create the ruleset manually:
 
 1. Go to your repository on GitHub.
 2. Click **Settings** (top menu bar).
-3. Click **Branches** (left sidebar).
-4. Click **Add rule**.
-5. Type `main` in the branch name pattern.
-6. Check these boxes:
+3. Click **Rules > Rulesets** (left sidebar).
+4. Click **New ruleset > New branch ruleset**.
+5. Name it `Protect main`.
+6. Under **Target branches**, add `main`.
+7. Enable these rules:
    - "Require a pull request before merging"
    - "Require status checks to pass before merging" (if you have CI)
-   - "Do not allow bypassing the above settings"
-7. Click **Create**.
+   - "Block force pushes"
+8. Click **Create**.
 
-**You should see:** A protection rule listed for the `main` branch.
+**You should see:** A ruleset listed under Settings > Rules > Rulesets.
+
+> **Note:** The legacy Settings > Branches page still works but GitHub
+> recommends Rulesets for new repositories.
 
 ---
 

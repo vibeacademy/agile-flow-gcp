@@ -71,6 +71,19 @@ The `.claude/hooks/ensure-github-account.sh` hook auto-switches accounts:
 Configure in `.claude/settings.local.json`. See `.claude/settings.template.json`
 for the deny rules and allowed tools.
 
+MCP servers are defined in `.mcp.json` (project root). The bootstrap
+wizard creates this file automatically.
+
+| Server | Required | Token | Scopes |
+|--------|----------|-------|--------|
+| `github` | Yes | `GITHUB_PERSONAL_ACCESS_TOKEN` | `repo` + `project` |
+| `memory` | Yes | none | -- |
+| `sequential-thinking` | No | none | -- |
+
+The `GITHUB_PERSONAL_ACCESS_TOKEN` must be a classic PAT with `repo` and
+`project` scopes, or a fine-grained PAT with Contents, Issues, Pull
+requests, Metadata (read), and Projects permissions.
+
 ---
 
 ## Formatting Standards

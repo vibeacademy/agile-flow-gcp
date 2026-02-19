@@ -1,7 +1,7 @@
 # Day 1 Walkthrough: Fork to Production Bug Ticket
 
 This is a step-by-step guide for workshop participants. It assumes you have
-already completed the bootstrap wizard (`./bootstrap.sh`, Phases 0-3) and
+already completed the bootstrap wizard (`bash bootstrap.sh`, Phases 0-3) and
 that your instructor has walked through the three-account setup. If you are
 an instructor, see [WORKSHOP-GUIDE.md](./WORKSHOP-GUIDE.md) for session
 plans and troubleshooting flowcharts.
@@ -19,9 +19,11 @@ By the end of Day 1, you will have:
 
 Before you start, confirm:
 
-- Phase 0-3 of `./bootstrap.sh` completed (product, architecture, agents)
+- Phase 0-3 of `bash bootstrap.sh` completed (product, architecture, agents)
 - Three GitHub accounts ready (personal, `{org}-worker`, `{org}-reviewer`)
 - Claude Code CLI installed and authenticated
+- MCP servers working — run `claude` and verify `github` and `memory` servers connect
+- `GITHUB_PERSONAL_ACCESS_TOKEN` exported with `repo` + `project` scopes
 - Render account created, service connected to your fork
 - Sentry project created with DSN added to Render environment variables
 
@@ -90,6 +92,12 @@ If any account is missing, log it in now:
 gh auth login --with-token < worker-token.txt
 gh auth login --with-token < reviewer-token.txt
 ```
+
+> **PAT scopes**: Each bot account's PAT needs **`repo`** + **`project`**
+> scopes (classic PAT) so the agent can manage issues, PRs, and move
+> tickets on the project board. If you used fine-grained PATs, enable
+> `Contents`, `Issues`, `Pull requests`, `Metadata` (read), and
+> `Projects` permissions.
 
 Verify the environment variables are set:
 

@@ -5,6 +5,11 @@
 
 set -e
 
+# Ensure this script runs under bash even if invoked as `zsh bootstrap.sh`
+if [ -z "$BASH_VERSION" ]; then
+    exec bash "$0" "$@"
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -228,6 +233,9 @@ phase0_environment() {
 
     if command -v claude &>/dev/null; then
         print_success "Claude Code CLI found at $(command -v claude)"
+    elif [ -x "$HOME/.claude/local/claude" ]; then
+        print_success "Claude Code CLI found at ~/.claude/local/claude"
+        print_info "Tip: Add ~/.claude/local to your PATH for easier access."
     else
         print_error "Claude Code CLI is not installed."
         echo ""
@@ -328,6 +336,19 @@ phase0_environment() {
             }
             persist_env_var "AGILE_FLOW_WORKER_ACCOUNT" "$worker_account"
             print_success "Worker account set: ${worker_account}"
+
+            # Verify project scope on worker account
+            print_info "Verifying PAT scopes for ${worker_account}..."
+            if gh project list --limit 1 &>/dev/null 2>&1; then
+                print_success "Worker PAT has 'project' scope."
+            else
+                print_warning "Worker PAT may be missing the 'project' scope."
+                echo "  Board operations (moving tickets between columns) require"
+                echo "  the 'project' scope on a classic PAT, or the 'Projects'"
+                echo "  permission on a fine-grained PAT."
+                echo "  Re-create the PAT at https://github.com/settings/tokens"
+                echo "  and check both 'repo' and 'project'."
+            fi
         fi
     fi
 
@@ -396,6 +417,18 @@ phase0_environment() {
             }
             persist_env_var "AGILE_FLOW_REVIEWER_ACCOUNT" "$reviewer_account"
             print_success "Reviewer account set: ${reviewer_account}"
+
+            # Verify project scope on reviewer account
+            print_info "Verifying PAT scopes for ${reviewer_account}..."
+            if gh project list --limit 1 &>/dev/null 2>&1; then
+                print_success "Reviewer PAT has 'project' scope."
+            else
+                print_warning "Reviewer PAT may be missing the 'project' scope."
+                echo "  Board operations require the 'project' scope on a classic"
+                echo "  PAT, or the 'Projects' permission on a fine-grained PAT."
+                echo "  Re-create the PAT at https://github.com/settings/tokens"
+                echo "  and check both 'repo' and 'project'."
+            fi
         fi
     fi
 
@@ -562,32 +595,51 @@ phase0_environment() {
     fi
 
     # -----------------------------------------------------------------------
-    #  Create .mcp.json if it does not exist
+    #  Create or validate .mcp.json
     # -----------------------------------------------------------------------
     echo ""
     print_info "Checking MCP server configuration..."
 
+    local mcp_needs_create=false
+
     if [ -f ".mcp.json" ]; then
-        print_success ".mcp.json already exists."
+        # Validate that required servers are present
+        local mcp_valid=true
+        if ! grep -q '"github"' .mcp.json 2>/dev/null; then
+            print_warning ".mcp.json is missing the 'github' server (required)."
+            mcp_valid=false
+        fi
+        if ! grep -q '"memory"' .mcp.json 2>/dev/null; then
+            print_warning ".mcp.json is missing the 'memory' server (required)."
+            mcp_valid=false
+        fi
+
+        if [ "$mcp_valid" = true ]; then
+            print_success ".mcp.json exists with required servers (github, memory)."
+        else
+            echo ""
+            echo "  Your .mcp.json appears to be stale or incomplete."
+            read -p "  Reset to defaults? A backup will be saved to .mcp.json.bak (Y/n): " reset_mcp
+            if [[ ! "$reset_mcp" =~ ^[Nn]$ ]]; then
+                cp .mcp.json .mcp.json.bak
+                print_info "Backed up existing .mcp.json to .mcp.json.bak"
+                mcp_needs_create=true
+            else
+                print_warning "Keeping existing .mcp.json. Add missing servers manually."
+            fi
+        fi
     else
+        mcp_needs_create=true
+    fi
+
+    if [ "$mcp_needs_create" = true ]; then
         if [ -f ".claude/settings.template.json" ]; then
-            print_warning ".mcp.json not found."
+            print_warning ".mcp.json not found or being reset."
             echo ""
             echo "  Agile Flow uses MCP (Model Context Protocol) servers to give"
             echo "  Claude Code access to GitHub, memory, and other integrations."
             echo ""
-            echo "  A template exists at .claude/settings.template.json but MCP"
-            echo "  server configuration (.mcp.json) is specific to your machine."
-            echo ""
-            echo "  You should configure it in Claude Code. When you first run"
-            echo "  'claude' it will prompt you to set up MCP servers."
-            echo ""
-            echo "  For reference, your .mcp.json should include at minimum:"
-            echo "    - github (for issue/PR management)"
-            echo "    - memory (for agent context persistence)"
-            echo "    - sequential-thinking (for structured reasoning)"
-            echo ""
-            print_info "Creating a minimal .mcp.json placeholder..."
+            print_info "Creating .mcp.json with default MCP servers..."
 
             cat > .mcp.json << 'MCPEOF'
 {
@@ -611,11 +663,38 @@ phase0_environment() {
 }
 MCPEOF
             print_success "Created .mcp.json with default MCP servers."
-            print_info "Edit .mcp.json to customize paths or add servers for your setup."
         else
             print_warning ".claude/settings.template.json not found — skipping .mcp.json creation."
             print_info "You can create .mcp.json manually. See Claude Code docs for format."
         fi
+    fi
+
+    # -----------------------------------------------------------------------
+    #  MCP token and server guidance
+    # -----------------------------------------------------------------------
+    echo ""
+    echo "  MCP Server Reference:"
+    echo ""
+    echo "  Server                Required?   Token Needed"
+    echo "  ────────────────────  ─────────   ────────────────────────────────"
+    echo "  github                REQUIRED    GITHUB_PERSONAL_ACCESS_TOKEN"
+    echo "                                    (needs 'repo' + 'project' scopes)"
+    echo "  memory                REQUIRED    none"
+    echo "  sequential-thinking   optional    none"
+    echo ""
+    echo "  To set your token, add this to your shell profile:"
+    echo "    export GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxxxx"
+    echo ""
+    echo "  Create a classic PAT at https://github.com/settings/tokens"
+    echo "  and check the 'repo' and 'project' scope boxes."
+    echo ""
+
+    if [ -n "$GITHUB_PERSONAL_ACCESS_TOKEN" ]; then
+        print_success "GITHUB_PERSONAL_ACCESS_TOKEN is set."
+    else
+        print_warning "GITHUB_PERSONAL_ACCESS_TOKEN is not set."
+        echo "  The github MCP server will not work without it."
+        echo "  Set it now or add it to your shell profile before running Claude Code."
     fi
 
     # -----------------------------------------------------------------------
@@ -801,6 +880,55 @@ phase4_workflow() {
 
     read -p "Press Enter when Phase 4 is complete..."
 
+    # -------------------------------------------------------------------
+    #  Ensure branch protection exists on main (idempotent)
+    # -------------------------------------------------------------------
+    echo ""
+    print_info "Checking branch protection on main..."
+
+    local remote_url
+    remote_url=$(git remote get-url origin 2>/dev/null || true)
+    if [ -n "$remote_url" ]; then
+        local repo_slug
+        repo_slug=$(echo "$remote_url" | sed -E 's#(https://github\.com/|git@github\.com:)##' | sed 's/\.git$//')
+
+        if [ -n "$repo_slug" ]; then
+            # Check for existing rulesets that protect main
+            local existing_rulesets
+            existing_rulesets=$(gh api "repos/${repo_slug}/rulesets" --jq 'length' 2>/dev/null || echo "0")
+
+            if [ "$existing_rulesets" -gt 0 ] 2>/dev/null; then
+                print_success "Repository has ${existing_rulesets} ruleset(s) — branch protection likely configured."
+            else
+                print_info "No rulesets found. Creating branch protection ruleset for main..."
+                if gh api "repos/${repo_slug}/rulesets" \
+                    --method POST \
+                    --field name="Protect main" \
+                    --field target="branch" \
+                    --field enforcement="active" \
+                    --field 'conditions[ref_name][include][]=refs/heads/main' \
+                    --field 'conditions[ref_name][exclude][]=' \
+                    --field 'rules[][type]=pull_request' \
+                    --field 'rules[][type]=required_status_checks' \
+                    &>/dev/null 2>&1; then
+                    print_success "Branch protection ruleset created for main."
+                else
+                    print_warning "Could not create ruleset automatically."
+                    echo "  You may not have admin permissions, or the repo may be on"
+                    echo "  a plan that does not support rulesets via API."
+                    echo ""
+                    echo "  Manual fallback — go to your repo on GitHub:"
+                    echo "    Settings > Rules > Rulesets > New ruleset"
+                    echo "    - Name: Protect main"
+                    echo "    - Target: main branch"
+                    echo "    - Rules: Require pull request, Require status checks"
+                fi
+            fi
+        fi
+    else
+        print_warning "No git remote — skipping branch protection check."
+    fi
+
     mark_phase_complete "phase4"
     print_success "Phase 4 complete! Workflow activated."
 }
@@ -905,7 +1033,7 @@ main() {
             run_phase 0
             ;;
         q|Q)
-            print_info "Exiting. Run ./bootstrap.sh to continue later."
+            print_info "Exiting. Run 'bash bootstrap.sh' to continue later."
             exit 0
             ;;
         *)
@@ -925,7 +1053,7 @@ main() {
         echo ""
         read -p "Continue to Phase $current? (Y/n): " cont
         if [[ $cont =~ ^[Nn]$ ]]; then
-            print_info "Pausing. Run ./bootstrap.sh to continue later."
+            print_info "Pausing. Run 'bash bootstrap.sh' to continue later."
             exit 0
         fi
 
