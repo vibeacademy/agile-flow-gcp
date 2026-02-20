@@ -146,64 +146,6 @@ jobs:
             echo "migration_status=failed" >> $GITHUB_OUTPUT
           fi
 
-      - name: Configure Supabase branch auth redirect URLs
-        id: supabase_auth
-        if: steps.supabase_env.outputs.branch_exists == 'true'
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          BRANCH_REF="${{ steps.supabase_env.outputs.branch_project_ref }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-
-          # Render preview URL pattern: {service-name}-pr-{number}.onrender.com
-          # The base service name is fetched from Render API during the
-          # preview wait step. Use a generic pattern here.
-          PREVIEW_BASE_URL="https://app-pr-${PR_NUMBER}.onrender.com"
-          PREVIEW_WILDCARD="${PREVIEW_BASE_URL}/**"
-
-          echo "Configuring auth for branch: $BRANCH_REF"
-          echo "Preview URL: $PREVIEW_BASE_URL"
-
-          AUTH_CONFIG=$(curl -s -X GET \
-            "https://api.supabase.com/v1/projects/${BRANCH_REF}/config/auth" \
-            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
-            -H "Content-Type: application/json")
-
-          if ! echo "$AUTH_CONFIG" | jq -e '.site_url' > /dev/null 2>&1; then
-            echo "WARNING: Could not fetch auth config — API may not be available for branches"
-            echo "auth_configured=skipped" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          CURRENT_URLS=$(echo "$AUTH_CONFIG" | jq -r '.uri_allow_list // ""')
-
-          if echo "$CURRENT_URLS" | grep -q "$PREVIEW_WILDCARD"; then
-            echo "Preview URL already in redirect list"
-            echo "auth_configured=already_configured" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          if [ -n "$CURRENT_URLS" ]; then
-            NEW_URLS="${CURRENT_URLS},${PREVIEW_WILDCARD}"
-          else
-            NEW_URLS="${PREVIEW_WILDCARD}"
-          fi
-
-          UPDATE_RESPONSE=$(curl -s -X PATCH \
-            "https://api.supabase.com/v1/projects/${BRANCH_REF}/config/auth" \
-            -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"uri_allow_list\": \"$NEW_URLS\", \"site_url\": \"$PREVIEW_BASE_URL\"}")
-
-          if echo "$UPDATE_RESPONSE" | jq -e '.uri_allow_list' > /dev/null 2>&1; then
-            echo "Auth redirect URLs updated successfully"
-            echo "auth_configured=true" >> $GITHUB_OUTPUT
-          else
-            echo "WARNING: Failed to update auth redirect URLs"
-            echo "Response: ${UPDATE_RESPONSE:0:500}"
-            echo "auth_configured=false" >> $GITHUB_OUTPUT
-          fi
-
       # ── Render Preview Deployment ─────────────────────────────────────
 
       - name: Wait for Render preview service
@@ -223,6 +165,7 @@ jobs:
 
           MAX_ATTEMPTS=60
           ATTEMPT=0
+          DEPLOY_RESOLVED="false"
 
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
             ATTEMPT=$((ATTEMPT + 1))
@@ -253,7 +196,19 @@ jobs:
 
                 echo "Current deploy status: $DEPLOY_STATUS"
                 echo "deploy_status=$DEPLOY_STATUS" >> "$GITHUB_OUTPUT"
-                break
+
+                if [ "$DEPLOY_STATUS" = "live" ]; then
+                  echo "Preview deployment is live!"
+                  echo "preview_ready=true" >> "$GITHUB_OUTPUT"
+                  DEPLOY_RESOLVED="true"
+                  break
+                elif [ "$DEPLOY_STATUS" = "build_failed" ] || [ "$DEPLOY_STATUS" = "deactivated" ] || [ "$DEPLOY_STATUS" = "canceled" ]; then
+                  echo "ERROR: Deploy reached terminal state: $DEPLOY_STATUS"
+                  echo "preview_ready=false" >> "$GITHUB_OUTPUT"
+                  echo "deploy_failed=true" >> "$GITHUB_OUTPUT"
+                  DEPLOY_RESOLVED="true"
+                  break
+                fi
               fi
             fi
 
@@ -261,14 +216,23 @@ jobs:
             sleep 10
           done
 
-          # Fallback if not found
-          if [ -z "$SVC_ID" ] || [ "$SVC_ID" = "null" ]; then
+          # Only run post-loop fallback logic if the loop did not resolve
+          if [ "$DEPLOY_RESOLVED" = "true" ]; then
+            echo "Deploy status resolved in polling loop"
+          elif [ -z "$SVC_ID" ] || [ "$SVC_ID" = "null" ]; then
+            echo "WARNING: Could not find preview service after $MAX_ATTEMPTS attempts"
+            echo "preview_found=false" >> "$GITHUB_OUTPUT"
             BASE_NAME=$(curl -s -X GET \
               "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
               -H "Authorization: Bearer ${RENDER_API_KEY}" \
               -H "Accept: application/json" | jq -r '.name // "app"')
             echo "preview_url=https://${BASE_NAME}-pr-${PR_NUMBER}.onrender.com" >> "$GITHUB_OUTPUT"
-            echo "preview_found=false" >> "$GITHUB_OUTPUT"
+          else
+            # Service was found but deploy didn't reach terminal state in time
+            echo "WARNING: Preview service found but deploy not yet live"
+            echo "preview_service_id=$SVC_ID" >> "$GITHUB_OUTPUT"
+            echo "preview_url=$SVC_URL" >> "$GITHUB_OUTPUT"
+            echo "preview_ready=false" >> "$GITHUB_OUTPUT"
           fi
 
       # ── Inject Supabase credentials into Render preview ───────────────
@@ -406,6 +370,113 @@ jobs:
           echo "url=$PREVIEW_URL" >> $GITHUB_OUTPUT
           echo "Preview URL: $PREVIEW_URL"
 
+      # ── Supabase Auth Redirect Configuration (after preview URL known) ──
+
+      - name: Configure Supabase branch auth redirect URLs
+        id: supabase_auth
+        if: steps.supabase_env.outputs.branch_exists == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          BRANCH_REF="${{ steps.supabase_env.outputs.branch_project_ref }}"
+          PREVIEW_URL="${{ steps.preview_url.outputs.url }}"
+
+          if [ -z "$PREVIEW_URL" ]; then
+            echo "WARNING: No preview URL available, skipping auth config"
+            echo "auth_configured=skipped" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Configuring auth redirect URLs for Supabase branch: $BRANCH_REF"
+
+          # Use the actual Render preview URL (not a hardcoded pattern)
+          PREVIEW_URL_CALLBACK="${PREVIEW_URL}/auth/callback"
+          PREVIEW_BASE_URL="$PREVIEW_URL"
+
+          echo "Preview base URL: $PREVIEW_BASE_URL"
+          echo "Adding redirect URL: $PREVIEW_URL_CALLBACK"
+
+          # Retry loop: Supabase branch API may not be ready immediately
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          AUTH_CONFIGURED="false"
+
+          for ATTEMPT in $(seq 1 $MAX_RETRIES); do
+            echo "Attempt $ATTEMPT/$MAX_RETRIES: Fetching auth config..."
+
+            # Fetch current auth config from the Supabase branch
+            AUTH_CONFIG=$(curl -s -X GET \
+              "https://api.supabase.com/v1/projects/${BRANCH_REF}/config/auth" \
+              -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+              -H "Content-Type: application/json")
+
+            # Check if we got a valid response
+            if ! echo "$AUTH_CONFIG" | jq -e '.site_url' > /dev/null 2>&1; then
+              echo "Could not fetch auth config (attempt $ATTEMPT/$MAX_RETRIES)"
+              echo "Response: ${AUTH_CONFIG:0:500}"
+              if [ $ATTEMPT -lt $MAX_RETRIES ]; then
+                SLEEP_TIME=$((RETRY_DELAY * ATTEMPT))
+                echo "Retrying in ${SLEEP_TIME}s..."
+                sleep $SLEEP_TIME
+                continue
+              fi
+              echo "ERROR: All $MAX_RETRIES attempts to fetch auth config failed"
+              echo "auth_configured=failed" >> $GITHUB_OUTPUT
+              break
+            fi
+
+            # Extract current redirect URLs (uri_allow_list is a comma-separated string)
+            CURRENT_REDIRECT_URLS=$(echo "$AUTH_CONFIG" | jq -r '.uri_allow_list // ""')
+            echo "Current redirect URLs: $CURRENT_REDIRECT_URLS"
+
+            # Check if preview URL is already in the list
+            if echo "$CURRENT_REDIRECT_URLS" | grep -q "$PREVIEW_URL_CALLBACK"; then
+              echo "Preview URL already in redirect list"
+              echo "auth_configured=already_configured" >> $GITHUB_OUTPUT
+              AUTH_CONFIGURED="true"
+              break
+            fi
+
+            # Build new redirect URLs list (append to existing)
+            if [ -n "$CURRENT_REDIRECT_URLS" ]; then
+              NEW_REDIRECT_URLS="${CURRENT_REDIRECT_URLS},${PREVIEW_URL_CALLBACK}"
+            else
+              NEW_REDIRECT_URLS="${PREVIEW_URL_CALLBACK}"
+            fi
+
+            echo "New redirect URLs: $NEW_REDIRECT_URLS"
+
+            # Update auth config: uri_allow_list AND site_url
+            UPDATE_RESPONSE=$(curl -s -X PATCH \
+              "https://api.supabase.com/v1/projects/${BRANCH_REF}/config/auth" \
+              -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"uri_allow_list\": \"$NEW_REDIRECT_URLS\", \"site_url\": \"${PREVIEW_BASE_URL}/auth/callback\"}")
+
+            # Check if update was successful
+            if echo "$UPDATE_RESPONSE" | jq -e '.uri_allow_list' > /dev/null 2>&1; then
+              echo "Auth redirect URLs updated successfully"
+              echo "auth_configured=true" >> $GITHUB_OUTPUT
+              AUTH_CONFIGURED="true"
+              break
+            else
+              echo "Failed to update auth redirect URLs (attempt $ATTEMPT/$MAX_RETRIES)"
+              echo "Response: ${UPDATE_RESPONSE:0:500}"
+              if [ $ATTEMPT -lt $MAX_RETRIES ]; then
+                SLEEP_TIME=$((RETRY_DELAY * ATTEMPT))
+                echo "Retrying in ${SLEEP_TIME}s..."
+                sleep $SLEEP_TIME
+              else
+                echo "ERROR: All $MAX_RETRIES attempts to update auth config failed"
+                echo "auth_configured=failed" >> $GITHUB_OUTPUT
+              fi
+            fi
+          done
+
+          if [ "$AUTH_CONFIGURED" != "true" ]; then
+            echo "::warning::Supabase auth redirect URLs could not be configured for the preview environment. Magic link login will redirect to production instead of the preview URL."
+          fi
+
       - name: Wait for deployment stabilization
         if: steps.render_redeploy.outputs.redeploy_triggered == 'true'
         run: |
@@ -477,6 +548,7 @@ jobs:
               body += `| Migrations | ${migrationStatus === 'success' ? 'Applied' : migrationStatus === 'failed' ? 'Failed' : 'Skipped'} |\n`;
               const authStatus = authConfigured === 'true' ? 'Configured'
                 : authConfigured === 'already_configured' ? 'Already configured'
+                : authConfigured === 'failed' ? 'Failed (login will redirect to production)'
                 : authConfigured === 'skipped' ? 'Skipped (API unavailable)'
                 : 'Not configured';
               body += `| Auth Redirects | ${authStatus} |\n`;
@@ -496,6 +568,11 @@ jobs:
 
             if (branchExists === 'true') {
               body += '\n> Supabase branch database detected. Branch credentials were injected into the preview.\n';
+              if (authConfigured === 'true' || authConfigured === 'already_configured') {
+                body += '> Auth redirect URLs configured — magic link login will work for this preview.\n';
+              } else if (authConfigured === 'failed') {
+                body += '> **Auth NOT configured:** Failed to update Supabase branch auth redirect URLs after 3 retries. Magic link login will redirect to **production** instead of this preview. See workflow logs for details.\n';
+              }
             } else {
               body += '\n> No Supabase branch detected. Preview uses production database.\n';
             }
