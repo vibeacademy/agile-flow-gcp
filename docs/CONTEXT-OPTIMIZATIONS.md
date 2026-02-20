@@ -47,7 +47,9 @@ dead zone. The agent will sometimes follow it, sometimes not.
 **Duplicated content dilutes attention.** If the same conventional commit
 format is described in CLAUDE.md, in the commit skill file, and in the
 agent policy, the model must attend to three copies. This triples the
-token cost and pushes other content further into the middle.
+token cost and pushes other content further into the middle. (For why
+conventional commits matter in the first place, see
+[CONVENTIONAL-COMMITS.md](./CONVENTIONAL-COMMITS.md).)
 
 **Long documents push instructions apart.** A 700+ line CLAUDE.md means
 that the first instruction and the last instruction are separated by

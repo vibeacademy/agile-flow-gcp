@@ -10,7 +10,7 @@ PR closes, both are torn down automatically.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        Pull Request Opened                         │
+│                        Pull Request Opened                          │
 └──────────────────────────────┬──────────────────────────────────────┘
                                │
               ┌────────────────┴────────────────┐
@@ -32,35 +32,35 @@ PR closes, both are torn down automatically.
 │                  preview-deploy.yml (GitHub Actions)                │
 │                                                                     │
 │  1. CI checks pass                                                  │
-│  2. Wait for Supabase branch DB (up to 10 min)                     │
-│  3. Fetch branch credentials (URL, anon_key, service_role_key)     │
-│  4. Apply migrations (supabase db push)                            │
-│  5. Configure auth redirect URLs for preview                       │
-│  6. Find Render preview service via API                            │
-│  7. Inject Supabase credentials into Render env vars               │
-│  8. Trigger Render redeploy                                        │
-│  9. Health check (/api/health)                                     │
-│ 10. Post status comment on PR                                      │
+│  2. Wait for Supabase branch DB (up to 10 min)                      │
+│  3. Fetch branch credentials (URL, anon_key, service_role_key)      │
+│  4. Apply migrations (supabase db push)                             │
+│  5. Configure auth redirect URLs for preview                        │
+│  6. Find Render preview service via API                             │
+│  7. Inject Supabase credentials into Render env vars                │
+│  8. Trigger Render redeploy                                         │
+│  9. Health check (/api/health)                                      │
+│ 10. Post status comment on PR                                       │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      PREVIEW LIVE                                   │
 │                                                                     │
-│   https://app-pr-{number}.onrender.com                             │
+│   https://app-pr-{number}.onrender.com                              │
 │          │                                                          │
-│          └──── connected to ────► Supabase branch database         │
-│                                   (isolated Postgres instance)     │
+│          └──── connected to ────► Supabase branch database          │
+│                                   (isolated Postgres instance)      │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                         PR merged/closed
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                preview-cleanup.yml (GitHub Actions)                  │
+│                preview-cleanup.yml (GitHub Actions)                 │
 │                                                                     │
-│   • Deletes Supabase branch DB                                     │
-│   • Render tears down preview service automatically                │
+│   • Deletes Supabase branch DB                                      │
+│   • Render tears down preview service automatically                 │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -85,20 +85,20 @@ Configure these in **Repository Settings > Secrets and variables > Actions**:
 │                     GitHub Repository Secrets                       │
 ├─────────────────────────────┬───────────────────────────────────────┤
 │  RENDER_API_KEY             │  Render Dashboard > Account Settings  │
-│                             │  > API Keys                          │
+│                             │  > API Keys                           │
 ├─────────────────────────────┼───────────────────────────────────────┤
-│  RENDER_SERVICE_ID          │  Render Dashboard > Service >        │
-│                             │  Settings (srv-xxxxx in URL)         │
+│  RENDER_SERVICE_ID          │  Render Dashboard > Service >         │
+│                             │  Settings (srv-xxxxx in URL)          │
 ├─────────────────────────────┼───────────────────────────────────────┤
-│  SUPABASE_ACCESS_TOKEN      │  Supabase Dashboard > Account >     │
-│                             │  Access Tokens                       │
+│  SUPABASE_ACCESS_TOKEN      │  Supabase Dashboard > Account >       │ 
+│                             │  Access Tokens                        │
 ├─────────────────────────────┼───────────────────────────────────────┤
-│  SUPABASE_PROJECT_REF       │  Supabase Dashboard > Project       │
-│                             │  Settings > General (Reference ID)   │
+│  SUPABASE_PROJECT_REF       │  Supabase Dashboard > Project         │
+│                             │  Settings > General (Reference ID)    │
 ├─────────────────────────────┼───────────────────────────────────────┤
-│  SUPABASE_DB_URL (optional) │  Supabase Dashboard > Project       │
-│                             │  Settings > Database > Connection    │
-│                             │  string (production migrations only) │
+│  SUPABASE_DB_URL (optional) │  Supabase Dashboard > Project         │
+│                             │  Settings > Database > Connection     │
+│                             │  string (production migrations only)  │
 └─────────────────────────────┴───────────────────────────────────────┘
 ```
 

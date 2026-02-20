@@ -2,6 +2,35 @@
 
 A Claude Code project template that bootstraps a complete agile development workflow with specialized AI agents.
 
+## Why This Exists
+
+In lean manufacturing, a **gemba walk** is when a manager goes to the
+factory floor to observe work as it actually happens — not through
+reports or dashboards, but firsthand. The word *gemba* (現場) means "the
+actual place." You cannot improve a process you have not seen. You
+cannot catch problems from a summary.
+
+Agile Flow applies the same principle to AI-assisted development. When
+agents write code on your behalf, you are the factory manager. If you
+are not observing the work as it actually happens, you cannot be a
+responsible supervisor — and you expose yourself to risks you cannot
+see.
+
+Every practice in this template exists to keep your observation loop
+tight:
+
+- **Short-lived branches** so changes are small enough to actually read
+- **Structured commit messages** so you can scan the history at a glance
+- **Preview environments** so you can see what the change looks like live
+- **CI checks** so quality is verified before you even look at the PR
+- **Small, focused pull requests** so reviewing is a gemba walk through
+  the actual work — not a rubber stamp on a 2,000-line report
+
+A 2,000-line diff is not a gemba walk. It is a report you will skim and
+approve because reviewing it properly is too expensive. That is where
+risk hides. The specific intent of this template is to make it easy for
+human supervisors to walk the *gemba*.
+
 ## What This Is
 
 Agile Flow provides a team of AI agents that work together to manage your software project:
@@ -23,20 +52,6 @@ The agents hand off work to each other through a structured workflow, with human
 - [Claude Code](https://claude.ai/code) CLI installed
 - GitHub repository with project board
 - Node.js 18+ (for MCP servers)
-
-## Quick Start
-
-```bash
-# 1. Copy this template to your project
-cp -r agile-flow/ your-project/
-cd your-project
-
-# 2. Initialize git (if not already)
-git init
-
-# 3. Run the bootstrap wizard
-./bootstrap.sh
-```
 
 ## How It Works: Progressive Refinement
 
@@ -225,7 +240,7 @@ This template **requires** trunk-based development:
 - All changes via pull requests
 - Human performs final merge
 
-The agent workflow depends on this structure. See [CLAUDE.md](./CLAUDE.md) for details.
+The agent workflow depends on this structure. See [docs/BRANCHING-STRATEGY.md](./docs/BRANCHING-STRATEGY.md) for the reasoning and [CLAUDE.md](./CLAUDE.md) for the rules.
 
 ### GitHub Configuration
 
