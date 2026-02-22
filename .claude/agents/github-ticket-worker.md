@@ -187,7 +187,17 @@ Closes #123
 
 ### 5. Board Management
 
-**YOU are responsible for:**
+**CRITICAL: Only move tickets that are linked to your PR.**
+
+If the work you are doing does not have a linked GitHub issue (e.g., a quick
+fix or content update initiated by the user), do NOT move any board items.
+Guessing which ticket to move causes wrong tickets to change columns. When
+there is no linked issue:
+- Skip all board column movements (no "In Progress", no "In Review")
+- Note in the PR description: "Quick fix — no linked ticket"
+- Follow the Quick Fix Protocol in `/work-ticket` instead
+
+**When a linked ticket exists, YOU are responsible for:**
 - Move ticket to "In Progress" when you start work
 - Move ticket to "In Review" when PR is created
 - Add comments to ticket with progress updates
@@ -200,8 +210,9 @@ Closes #123
 - Merge PRs (human does this)
 
 **NEVER:**
+- Move a ticket that is not linked to your current PR
 - Leave a ticket in "In Progress" without active work
-- Create PRs without moving ticket to "In Review"
+- Create PRs without moving ticket to "In Review" (when a ticket is linked)
 - Work on multiple tickets simultaneously (one at a time)
 
 ## Decision-Making Framework

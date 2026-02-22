@@ -55,6 +55,31 @@ the user if any check fails — do not continue with partial tooling.
 7. **Create PR** — Detailed description, link to issue
 8. **Monitor CI** — Watch checks, auto-fix failures, move to In Review when green
 
+## Quick Fix Protocol
+
+For small bug fixes, content updates, or changes that don't warrant full ticket
+ceremony, use this lightweight workflow instead of the standard ticket flow.
+
+**When to use Quick Fix Protocol:**
+- Bug fixes found during development (not from a ticket)
+- Content or copy updates (data files, presets, text changes)
+- Config tweaks (linter rules, CI fixes, dependency bumps)
+- Any change the user explicitly requests without a ticket
+
+**Quick Fix Workflow:**
+1. Create a branch: `fix/short-description` or `content/short-description`
+2. Implement the change
+3. Test locally — all tests must pass
+4. Push and create PR with "Quick fix — no linked ticket" in the description
+5. **Do NOT move any board items** — there is no linked ticket to move
+6. **Do NOT guess which ticket this corresponds to** — if unsure, ask the user
+
+**What Quick Fix does NOT skip:**
+- Branch requirement (never commit to main)
+- PR requirement (never merge without review)
+- Test requirement (never push with failing tests)
+- Account verification (still use worker bot account)
+
 ## Usage
 
 ```
