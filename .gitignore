@@ -20,10 +20,15 @@ Thumbs.db
 credentials.json
 secrets.json
 
-# Node.js (if applicable)
+# Node.js
 node_modules/
 npm-debug.log*
 yarn-error.log*
+
+# Next.js
+.next/
+out/
+next-env.d.ts
 
 # Python
 __pycache__/

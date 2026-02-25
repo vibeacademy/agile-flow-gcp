@@ -35,20 +35,17 @@ Runs on every push and pull request to `main`.
 | `build` | Shell script correctness (shellcheck) |
 | `test` | Command and agent file validation |
 | `lint-agent-policies` | Agent policy safety rules |
+| `node` | ESLint, tsc --noEmit, Vitest, Next.js build |
 | `python` | Ruff lint, mypy (non-blocking), pytest with coverage |
 
+The `node` job is conditional — it only runs when `package.json` exists.
 The `python` job is conditional — it only runs when `pyproject.toml` exists.
-Coverage threshold defaults to 80% and can be overridden via the
-`COVERAGE_THRESHOLD` environment variable.
+Both can coexist; the template ships with Next.js by default so the `node`
+job runs and the `python` job skips. If you swap to the FastAPI starter
+(see `starters/fastapi/README.md`), the jobs reverse automatically.
 
-For **Node.js projects** (after stack transition), the `python` job is
-removed and replaced with stack-appropriate jobs: `lint` (ESLint),
-`typecheck` (`tsc --noEmit`), `test` (`npm test`), and `build`
-(`npm run build`). See the Stack Transition section of
-`bootstrap-architecture.md` for details.
-
-If a `features/` directory with `.feature` files exists, BDD tests run
-automatically.
+Coverage threshold for the Python job defaults to 80% and can be overridden
+via the `COVERAGE_THRESHOLD` environment variable.
 
 ### Release (`release.yml`)
 
@@ -159,14 +156,15 @@ Emergency rollback triggered manually via GitHub Actions UI.
 | Failure | Cause | Fix |
 |---------|-------|-----|
 | `lint` fails | Markdown formatting issues | Run `markdownlint --fix **/*.md` |
+| `node` lint fails | ESLint violations | Run `npm run lint` locally, then `npx eslint . --fix` |
+| `node` typecheck fails | TypeScript errors | Run `npm run typecheck` and fix reported errors |
+| `node` test fails | Vitest failures | Run `npm test` locally |
+| `node` build fails | Next.js build error | Run `npm run build` locally and check output |
 | `python` lint fails | Ruff violations | Run `uv run ruff check . --fix` |
 | `python` tests fail | Test failures or coverage below threshold | Fix tests or lower `COVERAGE_THRESHOLD` |
 | `lint-agent-policies` fails | Agent file missing safety phrases | Check `scripts/verify-agent-restrictions.sh` output |
 | `build` fails | Shell script errors | Run `shellcheck <script>` locally |
-| `lint` fails (ESLint) | ESLint violations (Node.js) | Run `npx eslint . --fix` |
-| `typecheck` fails (tsc) | TypeScript type errors (Node.js) | Run `npx tsc --noEmit` and fix reported errors |
-| `test` fails (Node.js) | Test failures (Node.js) | Run `npm test` locally |
-| `auto-fix` skips your stack | No fixer detected | Ensure `pyproject.toml` (Python) or `package.json` (Node.js) exists in the repo root |
+| `auto-fix` skips your stack | No fixer detected | Ensure `package.json` (Node.js) or `pyproject.toml` (Python) exists in the repo root |
 
 ### Secret-Gated Workflows Show "Skipped"
 

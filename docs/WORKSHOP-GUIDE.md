@@ -21,7 +21,7 @@ steps.
 - [ ] Supabase account with project created
 - [ ] Supabase access token generated
 - [ ] Supabase GitHub integration enabled for their org
-- [ ] Git, Node.js 18+, Python 3.11+, uv installed
+- [ ] Git and Node.js 20+ installed (Python 3.11+ and uv only if using FastAPI starter)
 
 ### Instructor Setup (Repository)
 
@@ -113,10 +113,10 @@ export AGILE_FLOW_REVIEWER_ACCOUNT="{org}-reviewer"
 Note: Sentry SaaS is optional. The app ships with zero-config error telemetry that creates GitHub issues automatically. The steps below are only needed if you want an external error monitoring dashboard.
 
 1. Create a Sentry organization (free tier is sufficient)
-2. Create a project: **Python > FastAPI**
+2. Create a project: **JavaScript > Next.js**
 3. Copy the DSN from **Settings > Client Keys**
 4. Add `SENTRY_DSN` to Render environment variables
-5. Test: Visit `/error` endpoint to trigger a deliberate error
+5. Test: Visit `/api/error` endpoint to trigger a deliberate error
 6. Verify: Error appears in Sentry dashboard within 30 seconds
 
 ## Render Setup
@@ -125,10 +125,10 @@ Note: Sentry SaaS is optional. The app ships with zero-config error telemetry th
 2. Connect GitHub repository
 3. Create a new **Web Service** from the repo
 4. Configure:
-   - Runtime: Python
-   - Build command: `pip install .`
-   - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-5. Add environment variables: `SENTRY_DSN`, `PYTHON_VERSION=3.11`
+   - Runtime: Node
+   - Build command: `npm install && npm run build`
+   - Start command: `node .next/standalone/server.js`
+5. Add environment variables: `SENTRY_DSN`, `NODE_VERSION=20`, `GITHUB_TOKEN`, `GITHUB_REPOSITORY`
 6. Enable preview environments in service settings
 7. Copy API key and service ID for GitHub secrets
 
@@ -221,11 +221,11 @@ ls .claude/hooks/ensure-github-account.sh
 CI Failed
   |
   +--> Lint error?
-  |      --> Run: uv run ruff check . --fix
+  |      --> Run: npx eslint . --fix (or uv run ruff check . --fix for FastAPI)
   |      --> Stage, commit, push
   |
   +--> Test failure?
-  |      --> Run: uv run pytest --tb=short
+  |      --> Run: npm test (or uv run pytest --tb=short for FastAPI)
   |      --> Fix the failing test or code
   |      --> Stage, commit, push
   |
@@ -257,7 +257,8 @@ CI Failed
 ```bash
 # Read the error output
 # Fix the issue (often auto-fixable):
-uv run ruff check . --fix
+npx eslint . --fix              # Next.js (default)
+# uv run ruff check . --fix     # FastAPI starter
 
 # Stage and amend:
 git add -A && git commit --amend --no-edit

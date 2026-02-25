@@ -1,10 +1,10 @@
 # Day 1 Walkthrough: Template to Production Bug Ticket
 
-This is a step-by-step guide for workshop participants. It assumes you have
-already completed the bootstrap wizard (`bash bootstrap.sh`, Phases 0-3) and
-that your instructor has walked through the three-account setup. If you are
-an instructor, see [WORKSHOP-GUIDE.md](./WORKSHOP-GUIDE.md) for session
-plans and troubleshooting flowcharts.
+This is a step-by-step guide for workshop participants. It uses a
+"Deploy First" approach — you will have a live app on the internet within
+15 minutes, then layer on the agentic workflow. If you are an instructor,
+see [WORKSHOP-GUIDE.md](./WORKSHOP-GUIDE.md) for session plans and
+troubleshooting flowcharts.
 
 By the end of Day 1, you will have:
 
@@ -19,12 +19,11 @@ By the end of Day 1, you will have:
 
 Before you start, confirm:
 
-- Phase 0-3 of `bash bootstrap.sh` completed (product, architecture, agents)
 - Three GitHub accounts ready (personal, `{org}-worker`, `{org}-reviewer`)
 - Claude Code CLI installed and authenticated
-- MCP servers working — run `claude` and verify `github` and `memory` servers connect
 - `GITHUB_PERSONAL_ACCESS_TOKEN` exported with `repo` + `project` + `workflow` scopes
-- Render account created, service connected to your repo
+- Node.js 20+ and npm installed
+- Render account created (free tier is fine)
 - Run `/doctor` in Claude Code (or `bash scripts/doctor.sh`) to verify your setup
 
 ---
@@ -44,7 +43,42 @@ You should see: Your own repo at
 
 ---
 
-## Step 2: Clone and Verify Local Setup
+## Step 2: Connect to Render and Deploy
+
+Deploy before cloning — see your app live in under 15 minutes.
+
+1. Go to <https://dashboard.render.com> and sign in.
+2. Click **New > Web Service**.
+3. Connect your GitHub repository (`{your-org}/agile-flow`).
+4. Render auto-detects `render.yaml`. Verify:
+   - **Build Command**: `npm install && npm run build`
+   - **Start Command**: `node .next/standalone/server.js`
+   - **Instance Type**: Free
+5. Click **Create Web Service**.
+
+Wait for the first deploy to complete (2-5 minutes on free tier).
+
+You should see: Your app at `https://agile-flow-starter.onrender.com`
+showing "Agile Flow Starter".
+
+Verify the health check:
+
+```bash
+curl https://agile-flow-starter.onrender.com/api/health
+```
+
+You should see:
+
+```json
+{"status":"ok"}
+```
+
+> **Free tier spin-down**: Free services spin down after 15 minutes of
+> inactivity. The first request after spin-down takes 30-60 seconds.
+
+---
+
+## Step 3: Clone and Verify Local Setup
 
 > **Important:** `cd` to the directory where you want your project *before*
 > cloning. A common mistake is cloning inside another repo.
@@ -55,20 +89,27 @@ git clone https://github.com/{your-org}/agile-flow.git
 cd agile-flow
 ```
 
-You should see:
+Install dependencies and verify:
 
+```bash
+npm install
+npm run dev
 ```
-Cloning into 'agile-flow'...
-remote: Enumerating objects: ...
+
+Open <http://localhost:3000> and confirm the landing page shows. Then
+check the health endpoint:
+
+```bash
+curl http://localhost:3000/api/health
 ```
+
+You should see: `{"status":"ok"}`
 
 Enable the pre-push hook:
 
 ```bash
 git config core.hooksPath scripts/hooks
 ```
-
-You should see: No output (silence means success).
 
 Run the diagnostic to verify your local setup:
 
@@ -81,7 +122,7 @@ any `[FAIL]` items before continuing.
 
 ---
 
-## Step 2b: Configure GitHub Secrets
+## Step 3b: Configure GitHub Secrets
 
 Your repository needs these secrets for the preview deploy and Supabase
 branch workflows. Go to your repo > **Settings > Secrets and variables >
@@ -94,13 +135,9 @@ Actions > New repository secret** and add each one:
 | `RENDER_API_KEY` | Render Dashboard > Account Settings > API Keys | Preview env var injection |
 | `RENDER_SERVICE_ID` | Render service URL (starts with `srv-`) | Preview service discovery |
 
-You can add `RENDER_API_KEY` and `RENDER_SERVICE_ID` later (after creating
-your Render service in Step 5), but `SUPABASE_ACCESS_TOKEN` and
-`SUPABASE_PROJECT_REF` should be set now if you have them.
-
 ---
 
-## Step 3: Verify Three Accounts Work
+## Step 4: Verify Three Accounts Work
 
 > **Tip**: If any account is missing, run
 > `bash scripts/setup-accounts.sh` to configure all three at once.
@@ -163,7 +200,42 @@ export AGILE_FLOW_REVIEWER_ACCOUNT="{org}-reviewer"
 
 ---
 
-## Step 4: Understand the Safety Layers
+## Step 5: Run the Bootstrap Wizard
+
+Open Claude Code and run the bootstrap phases:
+
+```bash
+claude
+```
+
+Inside the Claude Code session, run each phase in order:
+
+```
+/bootstrap-product
+/bootstrap-architecture
+/bootstrap-agents
+/bootstrap-workflow
+```
+
+The workflow phase will ask you for:
+
+```
+GitHub Organization: {your-org}
+Repository Name: agile-flow
+Project Board Name: Agile Flow
+```
+
+After completion you should see:
+
+- A GitHub Project board at your repo with columns populated
+- 3-5 tickets in the Ready column
+- Branch protection active on `main` (verify at Settings > Branches)
+
+Verify CI is green by checking the Actions tab on your repo.
+
+---
+
+## Step 6: Understand the Safety Layers
 
 Before you start using agents, understand why they cannot merge your code or
 push to main. The system has 8 layers of protection, described in full in
@@ -195,84 +267,16 @@ Worker (bot)            Reviewer (bot)          Human (you)
 
 No single actor can take a change from ticket to production alone.
 
-You should see: Nothing to run here. Read through the table and the
-three-stage diagram. Ask your instructor if any layer is unclear.
-
 ---
 
-## Step 5: Activate the Workflow -- `/bootstrap-workflow`
+## Step 7: Create a Ticket, Work It, and Get a PR
 
-Open Claude Code and run the final bootstrap phase:
-
-```bash
-claude
-```
-
-Inside the Claude Code session:
-
-```
-/bootstrap-workflow
-```
-
-The agent will ask you for:
-
-```
-GitHub Organization: {your-org}
-Repository Name: agile-flow
-Project Board Name: Agile Flow
-```
-
-Provide these values. The agent will:
-
-1. Create the project board with columns (Icebox, Backlog, Ready, In
-   Progress, In Review, Done)
-2. Configure branch protection on `main`
-3. Create initial backlog issues from your PRD
-4. Move the highest-priority tickets to Ready
-5. Update `CLAUDE.md` with your project board URL
-
-You should see:
-
-- A GitHub Project board at your repo with columns populated
-- 3-5 tickets in the Ready column
-- Branch protection active on `main` (verify at Settings > Branches)
-
-Verify the board is live:
-
-```bash
-gh project list --owner {your-org}
-```
-
-You should see:
-
-```
-NUMBER  TITLE        STATE
-1       Agile Flow   open
-```
-
-Verify CI is green by checking the Actions tab on your repo. If Phases 1-3
-were committed properly, the CI workflow should show a passing run.
-
-You should see: A green checkmark on the latest CI run at
-`https://github.com/{your-org}/agile-flow/actions`.
-
-> **Render production environment variables**: After creating your Render
-> service, set the following environment variables in the Render dashboard
-> (Settings > Environment): `NEXT_PUBLIC_SUPABASE_URL`,
-> `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`. These
-> are your **production** Supabase credentials. The preview deploy workflow
-> injects branch-specific credentials automatically for PR previews.
-
----
-
-## Step 6: Create a Ticket, Work It, and Get a PR
-
-### 6a. Create a ticket
+### 7a. Create a ticket
 
 In your Claude Code session:
 
 ```
-/create-ticket Add a /ping endpoint that returns {"ping": "pong"}
+/create-ticket Add a /api/ping endpoint that returns {"ping": "pong"}
 ```
 
 The agent will:
@@ -288,7 +292,7 @@ the issue number (e.g., `#7`).
 Move the ticket to Ready on the board (or ask the agent to do it during
 creation).
 
-### 6b. Work the ticket
+### 7b. Work the ticket
 
 ```
 /work-ticket
@@ -299,7 +303,7 @@ The agent (using the `{org}-worker` account) will:
 1. Pick the top ticket from the Ready column
 2. Move it to In Progress
 3. Create a branch: `feature/issue-7-ping-endpoint` (number will vary)
-4. Implement the `/ping` endpoint in `app/main.py`
+4. Implement the `/api/ping` endpoint
 5. Write a test
 6. Run lint and tests locally
 7. Push the branch
@@ -313,24 +317,12 @@ You should see:
 Created branch: feature/issue-7-ping-endpoint
 Moved #7 to In Progress
 ...
-Created PR #8: Add /ping endpoint
+Created PR #8: Add /api/ping endpoint
 CI checks passing
 Moved #7 to In Review
 ```
 
-Verify the PR exists:
-
-```bash
-gh pr list
-```
-
-You should see:
-
-```
-#8  Add /ping endpoint  feature/issue-7-ping-endpoint  OPEN
-```
-
-### 6c. Preview URL
+### 7c. Preview URL
 
 If Render secrets are configured (`RENDER_API_KEY` and `RENDER_SERVICE_ID`
 in your repo's GitHub Secrets), the preview deploy workflow triggers
@@ -346,7 +338,7 @@ Preview deployed: https://agile-flow-starter-pr-8.onrender.com
 Visit the preview URL and hit the new endpoint:
 
 ```bash
-curl https://agile-flow-starter-pr-8.onrender.com/ping
+curl https://agile-flow-starter-pr-8.onrender.com/api/ping
 ```
 
 You should see:
@@ -355,14 +347,11 @@ You should see:
 {"ping": "pong"}
 ```
 
-If Render secrets are not yet configured, skip the preview check. You will
-verify the endpoint after merging to production.
-
 ---
 
-## Step 7: Review the PR, Merge, and Deploy to Production
+## Step 8: Review the PR, Merge, and Deploy to Production
 
-### 7a. Agent review
+### 8a. Agent review
 
 In your Claude Code session:
 
@@ -377,30 +366,7 @@ The agent (using the `{org}-reviewer` account) will:
 3. Check that tests exist and CI is green
 4. Post a structured review comment with a GO or NO-GO recommendation
 
-You should see: A review comment on the PR that looks like:
-
-```
-## PR Review -- #8
-
-### Requirements
-- [x] Acceptance criteria from linked issue are met
-- [x] Feature works end-to-end as described
-
-### Code Quality
-- [x] Follows existing patterns and conventions
-
-### Testing
-- [x] Tests cover acceptance criteria
-- [x] All tests pass in CI
-
-### Recommendation
-**GO**
-
-The /ping endpoint is implemented correctly and follows the
-existing pattern from the /health endpoint.
-```
-
-### 7b. Human review and merge
+### 8b. Human review and merge
 
 This is your job. The agent cannot merge -- only you can.
 
@@ -411,72 +377,57 @@ This is your job. The agent cannot merge -- only you can.
 5. Click **Squash and merge**
 6. Delete the branch when prompted
 
-You should see: The PR status changes to "Merged" with a purple icon.
+### 8c. Production deployment
 
-### 7c. Production deployment
-
-If Render secrets are configured, the deploy workflow
-(`.github/workflows/deploy.yml`) triggers automatically on merge to `main`.
-
-Watch the deployment:
-
-```bash
-gh run list --workflow=deploy.yml --limit 1
-```
-
-You should see:
-
-```
-STATUS  TITLE                WORKFLOW  BRANCH  ...
-*       Deploy to production Deploy    main    ...
-```
+If Render secrets are configured, the deploy workflow triggers
+automatically on merge to `main`.
 
 Wait for it to complete (1-3 minutes for Render free tier). Then verify:
 
 ```bash
-curl https://agile-flow-starter.onrender.com/health
+curl https://agile-flow-starter.onrender.com/api/health
 ```
 
 You should see:
 
 ```json
-{"status": "ok"}
+{"status":"ok"}
 ```
 
 And your new endpoint:
 
 ```bash
-curl https://agile-flow-starter.onrender.com/ping
+curl https://agile-flow-starter.onrender.com/api/ping
 ```
 
 You should see:
 
 ```json
-{"ping": "pong"}
+{"ping":"pong"}
 ```
 
-### 7d. Close the ticket
+### 8d. Close the ticket
 
 Move ticket `#7` to the Done column on your project board. Only you (the
 human) do this -- agents are not allowed to mark tickets as Done.
 
 ---
 
-## Step 8: Trigger a Bug -- Error to GitHub Issue to Agent Fix
+## Step 9: Trigger a Bug -- Error to GitHub Issue to Agent Fix
 
-The starter app has a deliberate `/error` endpoint that raises a
-`RuntimeError`. When no external Sentry account is configured, the app
-captures errors itself and creates GitHub issues automatically.
+The starter app has a deliberate `/api/error` endpoint that throws an
+error. When no external Sentry account is configured, the app captures
+errors itself and creates GitHub issues automatically.
 
-### 8a. Hit the error endpoint
+### 9a. Hit the error endpoint
 
 ```bash
-curl https://agile-flow-starter.onrender.com/error
+curl https://agile-flow-starter.onrender.com/api/error
 ```
 
 You should see: An HTTP 500 response.
 
-### 8b. Check for the auto-created issue
+### 9b. Check for the auto-created issue
 
 Wait 10-30 seconds, then check your repository for new issues:
 
@@ -487,28 +438,13 @@ gh issue list --label bug:auto
 You should see:
 
 ```
-#N  bug: RuntimeError: Deliberate error for Day 1 workshop exercise...  bug:auto, P1
+#N  bug: Error: Test error for Sentry verification...  bug:auto, P1
 ```
 
 Open the issue on GitHub. The body contains the error type, message, and
 stack trace — everything the agent needs to fix it.
 
-### 8c. Auto-triage comment
-
-The auto-triage workflow fires automatically when the `bug:auto` label is
-applied. Check the issue for a comment that says:
-
-```
-## Auto-Triage
-
-This bug was automatically detected from a production error.
-
-To fix it, run:
-
-/work-ticket #N
-```
-
-### 8d. Agent fixes the bug
+### 9c. Agent fixes the bug
 
 Run the command from the triage comment:
 
@@ -519,19 +455,16 @@ Run the command from the triage comment:
 The agent will read the error details, create a branch, write a fix, and
 open a pull request.
 
-You should see: A new PR linked to the bug issue.
+### 9d. Review and merge
 
-### 8e. Review and merge
-
-Follow the same review process from Step 7 — run `/review-pr`, check the
+Follow the same review process from Step 8 — run `/review-pr`, check the
 diff, and merge.
 
-You should see: The bug fix deployed to production. The `/error` endpoint
-behavior is unchanged (it is deliberately broken for demo purposes), but
-you have now experienced the full loop:
+You should see: The bug fix deployed to production. You have now
+experienced the full loop:
 
 ```
-Error in production → Auto-detected → GitHub issue → Agent fix → PR → Human merge
+Error in production -> Auto-detected -> GitHub issue -> Agent fix -> PR -> Human merge
 ```
 
 No Sentry account required. If you want a full error monitoring dashboard
@@ -544,20 +477,21 @@ with history and alerts, see the upgrade options in
 
 Verify you have completed each item:
 
-- [ ] Created repo from template and cloned it locally
+- [ ] Created repo from template
+- [ ] Deployed to Render — `/api/health` returns `{"status":"ok"}`
+- [ ] Cloned locally — `npm run dev` works
 - [ ] All three accounts show up in `gh auth status`
 - [ ] Environment variables `AGILE_FLOW_WORKER_ACCOUNT` and
       `AGILE_FLOW_REVIEWER_ACCOUNT` are set
+- [ ] Bootstrap phases completed — board is live, CI is green
 - [ ] Read through the safety layers (AGENTIC-CONTROLS.md)
-- [ ] `/bootstrap-workflow` ran successfully -- board is live, CI is green
 - [ ] `/create-ticket` created a new issue on the board
 - [ ] `/work-ticket` implemented the ticket and created a PR
 - [ ] Preview URL works (if Render secrets configured)
 - [ ] `/review-pr` posted a GO/NO-GO review comment
 - [ ] You (human) approved and merged the PR
-- [ ] Production deploy succeeded -- `/health` returns `{"status": "ok"}`
-- [ ] `/error` endpoint created a `bug:auto` GitHub issue automatically
-- [ ] Auto-triage workflow posted a `/work-ticket` comment on the issue
+- [ ] Production deploy succeeded
+- [ ] `/api/error` endpoint created a `bug:auto` GitHub issue automatically
 
 ---
 
@@ -565,6 +499,9 @@ Verify you have completed each item:
 
 | Command | What It Does |
 |---------|-------------|
+| `/bootstrap-product` | Creates PRD and roadmap |
+| `/bootstrap-architecture` | Defines tech stack and system design |
+| `/bootstrap-agents` | Specializes agents with project context |
 | `/bootstrap-workflow` | Creates project board, branch protection, initial backlog |
 | `/create-ticket` | Creates a well-structured ticket on the board |
 | `/work-ticket` | Agent picks up next ticket, implements, creates PR |
@@ -603,10 +540,6 @@ gh run list --limit 5
 Check Render:
 
 - Open the Render dashboard and look at the build logs
-
-Check Sentry:
-
-- Open your Sentry project dashboard and look for recent events
 
 If none of that helps, ask your instructor. The
 [WORKSHOP-GUIDE.md](./WORKSHOP-GUIDE.md) has a full troubleshooting

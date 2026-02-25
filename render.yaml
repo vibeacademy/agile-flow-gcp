@@ -1,14 +1,18 @@
 services:
   - type: web
     name: agile-flow-starter
-    runtime: python
+    runtime: node
     plan: free
-    buildCommand: pip install .
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
+    buildCommand: npm install && npm run build
+    startCommand: node .next/standalone/server.js
+    healthCheckPath: /api/health
     previewsEnabled: true
     envVars:
       - key: SENTRY_DSN
         sync: false
-      - key: PYTHON_VERSION
-        value: "3.11"
+      - key: NODE_VERSION
+        value: "20"
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPOSITORY
+        sync: false

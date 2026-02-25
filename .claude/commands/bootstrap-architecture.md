@@ -49,36 +49,64 @@ to provide platform-specific guidance.
 
 ### Stack Transition
 
-When the user selects a non-Python stack (e.g., Node.js/Next.js, Go), you
-MUST clean up the default Python scaffolding before proceeding:
+The template ships with a **Next.js starter** (TypeScript, React 19,
+Vitest, ESLint). If the user selects Next.js, no transition is needed —
+skip this section entirely.
 
-1. **Remove Python files**: Delete `pyproject.toml`, `uv.lock`, `app/`
-   (if it contains Python code), `tests/` (if Python tests), and any
-   `tests/test_*.py` files.
-2. **Update `render.yaml`**: Replace the Python build/start commands with
-   the appropriate runtime. Reference templates:
-   - **Node.js**: `buildCommand: npm install && npm run build`,
-     `startCommand: npm start`
-   - **Go**: `buildCommand: go build -o server .`,
-     `startCommand: ./server`
-3. **Scaffold a minimal starter app**: Include at minimum:
+If the user selects a **different stack**, follow the instructions below.
+
+#### Swap to FastAPI (Python)
+
+The FastAPI starter is archived at `starters/fastapi/`. To swap:
+
+1. **Remove Next.js files from root**: Delete `package.json`,
+   `package-lock.json`, `next.config.ts`, `tsconfig.json`,
+   `vitest.config.ts`, `vitest.setup.ts`, `eslint.config.mjs`,
+   `app/` (the Next.js app directory), `__tests__/`, and
+   `instrumentation.ts`.
+2. **Copy FastAPI files to root**:
+   ```bash
+   cp -r starters/fastapi/app/ app/
+   cp -r starters/fastapi/tests/ tests/
+   cp starters/fastapi/pyproject.toml pyproject.toml
+   cp starters/fastapi/uv.lock uv.lock
+   cp starters/fastapi/render.yaml render.yaml
+   ```
+3. **Update `CLAUDE.md`**: Replace the build/test commands section with:
+   ```bash
+   uv run uvicorn app.main:app --reload  # Dev server
+   uv run ruff check .                    # Lint
+   uv run pytest                          # Tests
+   ```
+4. **Initialize UI component library** (if selected): When the
+   architecture includes shadcn/ui, this does not apply to FastAPI
+   backends — skip this step.
+
+The CI `python` job activates automatically when `pyproject.toml` exists
+at root, and the `node` job auto-skips when `package.json` is absent.
+No CI workflow changes are needed.
+
+#### Swap to another stack (Go, etc.)
+
+For stacks without a pre-built starter:
+
+1. **Remove Next.js files from root**: Delete `package.json`,
+   `package-lock.json`, `next.config.ts`, `tsconfig.json`,
+   `vitest.config.ts`, `vitest.setup.ts`, `eslint.config.mjs`,
+   `app/`, `__tests__/`, and `instrumentation.ts`.
+2. **Scaffold a minimal starter app**: Include at minimum:
    - A root `/` route serving a landing page
    - A `/health` endpoint returning `{"status": "ok"}`
    - A `/error` endpoint that raises a deliberate error (for Sentry testing)
    - The **error receiver** (see below)
    - One passing test
+3. **Update `render.yaml`**: Replace the Node.js build/start commands with
+   the appropriate runtime. Reference:
+   - **Go**: `buildCommand: go build -o server .`,
+     `startCommand: ./server`
 4. **Update `CLAUDE.md`**: Replace the build/test commands section with
    commands for the new stack.
-5. **Rewrite CI workflows (`ci.yml` and `auto-fix.yml`)**: Replace the
-   Python-specific CI jobs with stack-appropriate jobs. For Node.js/Next.js
-   projects, the CI workflow should have: lint (ESLint + markdownlint with
-   `!node_modules`), typecheck (`tsc --noEmit`), test (`npm test`),
-   build (`npm run build`), and lint-agent-policies (kept from template).
-   Remove the `python`, `test`, `typecheck`, and `build` jobs that
-   reference Python validation scripts. Update `auto-fix.yml` to use
-   `npx eslint . --fix` instead of (or in addition to) `ruff` for
-   Node.js projects.
-6. **Initialize UI component library** (if selected): When the
+5. **Initialize UI component library** (if selected): When the
    architecture includes shadcn/ui, run `npx shadcn@latest init --yes`
    and install base components (`button`, `input`, `label`, `card`)
    during scaffolding. This prevents feature PRs from being cluttered
@@ -96,9 +124,10 @@ non-interactive flags to avoid blocking the agent:
 
 ### Error Receiver (Required for All Stacks)
 
-The Python starter includes an error receiver (`app/error_receiver.py`)
-that enables zero-config error telemetry. When switching stacks, you MUST
-port this functionality. The receiver has four responsibilities:
+The default Next.js starter includes the error receiver at
+`app/api/error-events/route.ts` (with parsing logic in
+`app/api/error-events/parse.ts`). When switching stacks, you MUST port
+this functionality. The receiver has four responsibilities:
 
 1. **Self-DSN construction** — On startup, if no `SENTRY_DSN` env var is
    set, construct a DSN pointing back at the app itself using
@@ -140,8 +169,9 @@ port this functionality. The receiver has four responsibilities:
 | Express | `@sentry/node` | `Sentry.init({ dsn })` before app setup |
 | Go | `sentry-go` | `sentry.Init(sentry.ClientOptions{Dsn: dsn})` |
 
-Reference the Python implementation in the git history (`app/main.py`
-and `app/error_receiver.py` at the initial commit) for exact behavior.
+Reference the Next.js implementation (`app/api/error-events/route.ts` and
+`app/api/error-events/parse.ts`) or the archived Python implementation
+(`starters/fastapi/app/error_receiver.py`) for exact behavior.
 
 ### 1. PRD Analysis
 The architect first analyzes your Product Requirements:

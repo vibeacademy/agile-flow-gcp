@@ -19,6 +19,7 @@ jobs:
           globs: |
             **/*.md
             !node_modules
+            !starters/**
           config: '.markdownlint.json'
 
   typecheck:
@@ -28,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate JSON files
-        run: ./tests/validate-json.sh
+        run: ./scripts/validation/validate-json.sh
 
   build:
     name: build
@@ -40,7 +41,7 @@ jobs:
         run: sudo apt-get install -y shellcheck
 
       - name: Validate shell scripts
-        run: ./tests/validate-scripts.sh
+        run: ./scripts/validation/validate-scripts.sh
 
   test:
     name: test
@@ -49,10 +50,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate command files
-        run: ./tests/validate-commands.sh
+        run: ./scripts/validation/validate-commands.sh
 
       - name: Validate agent files
-        run: ./tests/validate-agents.sh
+        run: ./scripts/validation/validate-agents.sh
 
   lint-agent-policies:
     name: lint-agent-policies
@@ -61,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate agent policies
-        run: ./tests/validate-agent-policies.sh
+        run: ./scripts/validation/validate-agent-policies.sh
 
       - name: Lint agent policies for prohibited instructions
         run: ./scripts/lint-agent-policies.sh
@@ -108,3 +109,45 @@ jobs:
       - name: Run BDD tests
         if: steps.check_python.outputs.skip != 'true' && hashFiles('features/*.feature') != ''
         run: uv run --extra dev pytest --tb=short -q features/
+
+  node:
+    name: node
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Node.js project
+        id: check_node
+        run: |
+          if [ -f "package.json" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No package.json found -- skipping Node.js checks."
+          fi
+
+      - name: Setup Node.js
+        if: steps.check_node.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        if: steps.check_node.outputs.skip != 'true'
+        run: npm ci
+
+      - name: Lint
+        if: steps.check_node.outputs.skip != 'true'
+        run: npm run lint
+
+      - name: Type check
+        if: steps.check_node.outputs.skip != 'true'
+        run: npm run typecheck
+
+      - name: Test
+        if: steps.check_node.outputs.skip != 'true'
+        run: npm test
+
+      - name: Build
+        if: steps.check_node.outputs.skip != 'true'
+        run: npm run build

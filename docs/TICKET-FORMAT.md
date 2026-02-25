@@ -63,26 +63,25 @@ Tell the agent how to PROVE it succeeded. Not "it works." Not "tests pass."
 ## 3. Concrete Example
 
 ```
-TICKET: BACKEND-042 -- Add /ping health-check endpoint
+TICKET: BACKEND-042 -- Add /api/ping health-check endpoint
 
 Problem Statement:
 The deployment pipeline has no lightweight endpoint to verify the service is
-running. Render health checks currently hit the root route, which loads
-middleware and returns HTML. We need a dedicated /ping endpoint that returns
-JSON with zero middleware overhead.
+running. Render health checks currently hit /api/health. We need a dedicated
+/api/ping endpoint that returns JSON with zero middleware overhead for use
+as an uptime monitor target.
 
 Parent Epic: INFRA-010 (Observability and Health Checks)
 Effort Estimate: XS
 Priority: P1
 
 --- A. Environment Context ---
-- Stack: Python 3.12 / FastAPI 0.111 / Uvicorn (see TECHNICAL-ARCHITECTURE.md)
+- Stack: Next.js 15 / React 19 / TypeScript (see TECHNICAL-ARCHITECTURE.md)
 - Integration points: Render health-check configuration (render.yaml)
-- Existing pattern: follow src/routes/health.py for route registration
+- Existing pattern: follow app/api/health/route.ts for route structure
 - Files to create or modify:
-    - CREATE src/routes/ping.py
-    - MODIFY src/main.py (register the new router)
-    - CREATE tests/test_ping.py
+    - CREATE app/api/ping/route.ts
+    - CREATE __tests__/ping.test.ts
 
 --- B. Guardrails ---
 - Do NOT add authentication to this endpoint (it must be publicly reachable).
@@ -92,26 +91,26 @@ Priority: P1
 - Do NOT modify any existing routes or middleware.
 
 --- C. Happy Path ---
-1. Client sends GET /ping with no body and no auth headers.
-2. FastAPI routes to the ping handler (no middleware chain).
+1. Client sends GET /api/ping with no body and no auth headers.
+2. Next.js App Router routes to the ping handler.
 3. Handler returns HTTP 200 with body: {"ping": "pong"}
    Content-Type: application/json
 4. No database call, no logging side-effect, no cache hit.
 
 --- D. Definition of Done ---
-- test_ping.py asserts GET /ping returns 200 with body {"ping": "pong"}.
-- test_ping.py asserts response Content-Type is application/json.
-- test_ping.py asserts response time < 50ms in test environment.
-- `ruff check src/routes/ping.py` returns zero errors.
-- `mypy --strict src/routes/ping.py` returns zero errors.
-- render.yaml health-check path is updated to /ping (or verified already correct).
-- PR reviewer can run `curl localhost:8000/ping` and see {"ping": "pong"}.
+- ping.test.ts asserts GET /api/ping returns 200 with body {"ping": "pong"}.
+- ping.test.ts asserts response Content-Type is application/json.
+- `npm run lint` returns zero errors.
+- `npm run typecheck` (tsc --noEmit) returns zero errors.
+- `npm test` passes all tests including the new test.
+- PR reviewer can run `curl localhost:3000/api/ping` and see {"ping": "pong"}.
 ```
 
-> **Note:** This example shows a Python/FastAPI project. Adapt file paths
-> (e.g., `src/routes/` → `src/app/api/`), lint commands (e.g., `ruff` →
-> `eslint`, `mypy` → `tsc`), and test runners (e.g., `pytest` → `vitest`)
-> to match your project's actual stack as defined in TECHNICAL-ARCHITECTURE.md.
+> **Note:** This example shows the default Next.js/TypeScript project. If
+> you swapped to the FastAPI starter (from `starters/fastapi/`), adapt file
+> paths (e.g., `app/api/` to `src/routes/`), lint commands (`eslint` to
+> `ruff`, `tsc` to `mypy`), and test runners (`vitest` to `pytest`) to
+> match your project's actual stack as defined in TECHNICAL-ARCHITECTURE.md.
 
 ---
 

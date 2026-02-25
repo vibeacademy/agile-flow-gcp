@@ -117,15 +117,13 @@ TEMPLATE: Fill in project-specific details below when using this template.
 
 ### Build & Test Commands
 
-<!--
-Fill in your project's commands, e.g.:
-
 ```bash
-uv run uvicorn app.main:app --reload  # Dev server
-uv run ruff check .                    # Lint
-uv run pytest                          # Tests
+npm run dev          # Dev server (Next.js on port 3000)
+npm run lint         # ESLint
+npm run typecheck    # tsc --noEmit
+npm test             # Vitest
+npm run build        # Production build (standalone output)
 ```
--->
 
 ### Definition of Ready
 
