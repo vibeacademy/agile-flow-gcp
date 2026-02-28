@@ -14,6 +14,35 @@ For multiple-choice questions, present numbered options and ask the user to resp
 
 ---
 
+## Pre-Check: Research Artifacts
+
+Before starting the questionnaire, check for these files:
+- `docs/MARKET-RESEARCH.md`
+- `docs/JOBS-TO-BE-DONE.md`
+- `docs/POSITIONING-ANALYSIS.md`
+
+**If any are found**, tell the user which artifacts were found. Example:
+> "I found 2 research artifacts: Market Research and JTBD Analysis. I'll pre-populate several questions from these — you can confirm or override each one."
+
+**Pre-population mapping** — for each question below, if the source artifact exists, show the pre-filled answer and ask "Is this correct? (yes to confirm, or type to override)":
+
+| Question | Source Artifact | Section |
+|----------|----------------|---------|
+| Q0.1 (domain) | MARKET-RESEARCH.md | Product Concept |
+| Q0.2 (value proposition) | POSITIONING-ANALYSIS.md | Positioning Statement |
+| Q2.1 (problem) | JOBS-TO-BE-DONE.md | Core Job Statement + Pain Points |
+| Q2.2 (who has problem) | POSITIONING-ANALYSIS.md | Best-Fit Customer |
+| Q2.3 (current solutions) | POSITIONING-ANALYSIS.md | Competitive Alternatives |
+| Q3.1 (primary user) | POSITIONING-ANALYSIS.md | Best-Fit Customer |
+| Q3.2 (pain point) | JOBS-TO-BE-DONE.md | Underserved Needs |
+| Q3.3 (secondary users) | MARKET-RESEARCH.md | Target Audience Insights |
+| Q6.1 (competitors) | MARKET-RESEARCH.md | Competitor Analysis |
+| Q6.2 (differentiator) | POSITIONING-ANALYSIS.md | Unique Attributes |
+
+**If no artifacts are found**, proceed normally. Mention that running `/research`, `/jtbd`, and `/positioning` first would produce higher-quality results, but they are not required.
+
+---
+
 ## Questionnaire
 
 ### Section 0: Your Domain
@@ -308,6 +337,12 @@ Use these templates when generating the documents:
 - **Timeline**: [From Q7.1]
 - **Constraints**: [From Q7.2]
 - **Technical Requirements**: [From Q7.3]
+
+## Research Foundation
+{Include this section only if research artifacts were used}
+- [Market Research](./MARKET-RESEARCH.md) {if available}
+- [Jobs-to-be-Done Analysis](./JOBS-TO-BE-DONE.md) {if available}
+- [Positioning Analysis](./POSITIONING-ANALYSIS.md) {if available}
 ```
 
 ### docs/PRODUCT-ROADMAP.md

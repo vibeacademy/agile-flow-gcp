@@ -167,6 +167,9 @@ approved, tests passing, no lint errors, PR merged to main.
 | `/work-ticket` | Pick up next ticket and implement |
 | `/review-pr` | Review PRs in In Review column |
 | `/check-milestone` | Check milestone progress |
+| `/research` | Market research with web search |
+| `/jtbd` | Jobs-to-be-Done user analysis |
+| `/positioning` | Product positioning analysis |
 | `/evaluate-feature` | Evaluate feature for strategic fit |
 | `/release-decision` | Go/no-go decision |
 | `/sprint-status` | Board health overview |

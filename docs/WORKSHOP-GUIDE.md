@@ -134,23 +134,27 @@ Note: Sentry SaaS is optional. The app ships with zero-config error telemetry th
 
 ## Session Plans
 
-### Day 1: Foundation (4 hours)
+### Day 1: Foundation (4.5 hours)
 
 | Time | Activity | Commands Used |
 |------|----------|---------------|
 | 0:00-0:15 | Introduction, setup verification | `/doctor`, `gh auth status` |
 | 0:15-0:30 | Deploy to Render (deploy-first) | Render dashboard |
-| 0:30-1:00 | Product definition | `/bootstrap-product` |
-| 1:00-1:30 | Technical architecture (stack selection) | `/bootstrap-architecture` |
-| 1:30-2:00 | Agent specialization | `/bootstrap-agents` |
-| 2:00-2:30 | Break | - |
-| 2:30-3:00 | Workflow activation | `/bootstrap-workflow` |
-| 3:00-3:30 | First ticket: implement and create PR | `/work-ticket` |
-| 3:30-4:00 | Trigger deliberate error, verify auto-created issue | `curl /error`, `gh issue list` |
+| 0:30-0:45 | Market research | `/research` |
+| 0:45-0:55 | Jobs-to-be-Done analysis | `/jtbd` |
+| 0:55-1:05 | Positioning analysis | `/positioning` |
+| 1:05-1:30 | Product definition (pre-populated) | `/bootstrap-product` |
+| 1:30-2:00 | Technical architecture (stack selection) | `/bootstrap-architecture` |
+| 2:00-2:30 | Agent specialization | `/bootstrap-agents` |
+| 2:30-3:00 | Break | - |
+| 3:00-3:30 | Workflow activation | `/bootstrap-workflow` |
+| 3:30-4:00 | First ticket: implement and create PR | `/work-ticket` |
+| 4:00-4:30 | Trigger deliberate error, verify auto-created issue | `curl /error`, `gh issue list` |
 
 **Day 1 Success Criteria:**
 - `/doctor` reports zero FAILs
 - App deployed to Render
+- Research artifacts generated (market research, JTBD, positioning)
 - Health check endpoint returns `{"status": "ok"}`
 - Stack swap completed (if non-Next.js chosen)
 - Deliberate error auto-creates a GitHub issue

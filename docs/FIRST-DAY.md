@@ -200,15 +200,48 @@ export AGILE_FLOW_REVIEWER_ACCOUNT="{org}-reviewer"
 
 ---
 
-## Step 5: Run the Bootstrap Wizard
+## Step 5a: Research Your Product (Optional but Recommended)
 
-Open Claude Code and run the bootstrap phases:
+Before running the bootstrap wizard, three research commands produce
+evidence-based artifacts that dramatically improve your PRD quality.
+Each takes roughly 10 minutes.
+
+Open Claude Code:
 
 ```bash
 claude
 ```
 
-Inside the Claude Code session, run each phase in order:
+Run the research pipeline in order:
+
+```
+/research
+/jtbd
+/positioning
+```
+
+| Command | What It Produces | Time |
+|---------|-----------------|------|
+| `/research` | `docs/MARKET-RESEARCH.md` — competitors, audience, market gaps | ~10 min |
+| `/jtbd` | `docs/JOBS-TO-BE-DONE.md` — user jobs, pain points, underserved needs | ~10 min |
+| `/positioning` | `docs/POSITIONING-ANALYSIS.md` — differentiators, category, value prop | ~10 min |
+
+Each command builds on the previous one — `/jtbd` reads market research,
+`/positioning` reads both. They handle missing artifacts gracefully, so
+you can run any subset.
+
+> **Short on time?** `/research` alone adds the most value. It gives
+> `/bootstrap-product` competitor data and audience insights to
+> pre-populate 4 of 25 questions.
+
+When you run `/bootstrap-product` next, it will detect these artifacts
+and pre-populate 10 of 25 questions. You confirm or override each one.
+
+---
+
+## Step 5: Run the Bootstrap Wizard
+
+Inside the same Claude Code session, run each phase in order:
 
 ```
 /bootstrap-product
@@ -489,6 +522,7 @@ Verify you have completed each item:
 - [ ] All three accounts show up in `gh auth status`
 - [ ] Environment variables `AGILE_FLOW_WORKER_ACCOUNT` and
       `AGILE_FLOW_REVIEWER_ACCOUNT` are set
+- [ ] Research artifacts generated (market research, JTBD, positioning)
 - [ ] Bootstrap phases completed — board is live, CI is green
 - [ ] Read through the safety layers (AGENTIC-CONTROLS.md)
 - [ ] `/create-ticket` created a new issue on the board
@@ -505,7 +539,10 @@ Verify you have completed each item:
 
 | Command | What It Does |
 |---------|-------------|
-| `/bootstrap-product` | Creates PRD and roadmap |
+| `/research` | Market research with web search |
+| `/jtbd` | Jobs-to-be-Done user analysis |
+| `/positioning` | Product positioning analysis |
+| `/bootstrap-product` | Creates PRD and roadmap (reads research artifacts) |
 | `/bootstrap-architecture` | Defines tech stack and system design |
 | `/bootstrap-agents` | Specializes agents with project context |
 | `/bootstrap-workflow` | Creates project board, branch protection, initial backlog |

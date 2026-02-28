@@ -12,11 +12,20 @@ graph TB
     subgraph Bootstrap ["Phase 0-4: Bootstrap (one-time setup)"]
         direction TB
         Human["Human (founder)"]
+        Research["Research Phase<br/><i>/research, /jtbd, /positioning</i>"]
         PM["Product Manager Agent"]
         SA["System Architect Agent"]
         BA["Bootstrap Agents Skill"]
 
+        Human -->|answers questions| Research
+        Research -->|produces| MR["MARKET-RESEARCH.md<br/><i>Competitors, audience,<br/>opportunity gaps</i>"]
+        Research -->|produces| JTBD["JOBS-TO-BE-DONE.md<br/><i>User jobs, pain points,<br/>underserved needs</i>"]
+        Research -->|produces| Pos["POSITIONING-ANALYSIS.md<br/><i>Differentiators, category,<br/>value proposition</i>"]
+
         Human -->|answers questions| PM
+        MR -->|enriches| PM
+        JTBD -->|enriches| PM
+        Pos -->|enriches| PM
         PM -->|produces| PRD["PRODUCT-REQUIREMENTS.md<br/><i>Vision, audience, features,<br/>success metrics, constraints</i>"]
         PM -->|produces| Roadmap["PRODUCT-ROADMAP.md<br/><i>Phases, milestones,<br/>success criteria</i>"]
 
@@ -79,6 +88,9 @@ graph TB
 
     Bootstrap --> Operate
 
+    style MR fill:#e8eaf6
+    style JTBD fill:#e8eaf6
+    style Pos fill:#e8eaf6
     style PRD fill:#e1f5fe
     style Roadmap fill:#e1f5fe
     style Arch fill:#e1f5fe
@@ -196,7 +208,11 @@ graph LR
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PRD: /bootstrap-product
+    [*] --> MarketResearch: /research (optional)
+    MarketResearch --> JTBDAnalysis: /jtbd (optional)
+    JTBDAnalysis --> Positioning: /positioning (optional)
+    Positioning --> PRD: /bootstrap-product
+    [*] --> PRD: /bootstrap-product (without research)
     PRD --> Architecture: /bootstrap-architecture
     Architecture --> AgentConfig: /bootstrap-agents
     AgentConfig --> Board: /bootstrap-workflow
@@ -221,7 +237,10 @@ stateDiagram-v2
 
 | Command | Actor | Reads | Produces |
 |---------|-------|-------|----------|
-| `/bootstrap-product` | Product Manager | Human answers | PRD, Roadmap |
+| `/research` | Product Manager | Human answers, web search | MARKET-RESEARCH.md |
+| `/jtbd` | Product Manager | Human answers, MARKET-RESEARCH.md (optional) | JOBS-TO-BE-DONE.md |
+| `/positioning` | Product Manager | Human answers, MARKET-RESEARCH.md + JOBS-TO-BE-DONE.md (optional) | POSITIONING-ANALYSIS.md |
+| `/bootstrap-product` | Product Manager | Human answers, research artifacts (optional) | PRD, Roadmap |
 | `/bootstrap-architecture` | System Architect | PRD | Architecture doc |
 | `/bootstrap-agents` | Bootstrap skill | PRD, Architecture | Agent configs |
 | `/bootstrap-workflow` | Workflow skill | CLAUDE.md | Board, branch protection, initial backlog |
