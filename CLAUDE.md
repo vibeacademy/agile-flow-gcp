@@ -148,10 +148,10 @@ approved, tests passing, no lint errors, PR merged to main.
 | `docs/SENTRY-SETUP.md` | Sentry + GitHub integration setup |
 | `docs/CI-CD-GUIDE.md` | Workflows, secrets, troubleshooting |
 | `docs/PLATFORM-GUIDE.md` | Deployment platform options and setup |
-| `docs/WORKSHOP-GUIDE.md` | Instructor guide for 3-day workshop |
+| `docs/WORKSHOP-GUIDE.md` | Workshop — separate repo (stub) |
 | `docs/GETTING-STARTED.md` | First-time setup walkthrough |
-| `docs/PRE-WORK-CHECKLIST.md` | Participant pre-workshop setup guide |
-| `docs/FIRST-DAY.md` | Participant Day 1 walkthrough |
+| `docs/PRE-WORK-CHECKLIST.md` | Workshop — separate repo (stub) |
+| `docs/FIRST-DAY.md` | Workshop — separate repo (stub) |
 | `docs/FAQ.md` | Common questions for non-engineers |
 | `docs/TICKET-FORMAT.md` | Agentic PRD Lite ticket format (canonical) |
 | `docs/ARTIFACT-FLOW.md` | Artifact flow diagrams and authority matrix |
