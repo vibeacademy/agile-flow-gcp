@@ -127,6 +127,42 @@ if [[ ":$PATH:" != *":/opt/homebrew/bin:"* ]] && [[ ":$PATH:" != *":/usr/local/b
 fi
 
 # ═══════════════════════════════════════════════════════════════════
+#  0. Framework Version
+# ═══════════════════════════════════════════════════════════════════
+section "Framework Version"
+
+if [ -f ".agile-flow-version" ]; then
+    if JQ_CMD=$(resolve_cmd jq); then
+        local_version=$("$JQ_CMD" -r '.version' .agile-flow-version 2>/dev/null || echo "")
+        if [ -n "$local_version" ]; then
+            # Fetch latest release from GitHub
+            latest_json=$(curl -s --max-time 5 https://api.github.com/repos/vibeacademy/agile-flow/releases/latest 2>/dev/null || echo "")
+            if [ -n "$latest_json" ]; then
+                latest_version=$(echo "$latest_json" | "$JQ_CMD" -r '.tag_name // empty' 2>/dev/null | sed 's/^v//')
+                release_url=$(echo "$latest_json" | "$JQ_CMD" -r '.html_url // empty' 2>/dev/null)
+                if [ -n "$latest_version" ]; then
+                    if [ "$local_version" = "$latest_version" ]; then
+                        pass "Framework Version" "Agile Flow v${local_version} (up to date)"
+                    else
+                        warn "Framework Version" "Agile Flow v${local_version} (update available: v${latest_version})" "${release_url}"
+                    fi
+                else
+                    warn "Framework Version" "Agile Flow v${local_version} (could not check for updates)" "GitHub API returned unexpected response"
+                fi
+            else
+                warn "Framework Version" "Agile Flow v${local_version} (could not check for updates)" "GitHub API unreachable"
+            fi
+        else
+            warn "Framework Version" "Version manifest unreadable" "Check .agile-flow-version format"
+        fi
+    else
+        skip "Framework Version" "Version check" "jq not installed"
+    fi
+else
+    warn "Framework Version" "Version manifest not found" "Run bootstrap.sh to create .agile-flow-version"
+fi
+
+# ═══════════════════════════════════════════════════════════════════
 #  1. CLI Tools
 # ═══════════════════════════════════════════════════════════════════
 section "CLI Tools"
