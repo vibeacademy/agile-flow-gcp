@@ -60,9 +60,11 @@ Agents CANNOT:
 - Move tickets to Done column (human-only)
 - Read secret files (.env, *.key, etc.)
 
-## Bot Accounts
+## Bot Accounts (Optional — for Teams)
 
-This project template assumes dedicated bot accounts for AI-assisted development to maintain proper separation of concerns and satisfy branch protection requirements.
+Dedicated bot accounts provide separation of concerns and a clear audit
+trail. Solo developers can use their personal GitHub account for all
+operations and skip this section.
 
 ### Recommended Setup
 

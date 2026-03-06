@@ -72,7 +72,11 @@ gh workflow run verify-agent-restrictions.yml -f test_category=protocol
 gh workflow run verify-agent-restrictions.yml -f verbose=true
 ```
 
-## Token Rotation Schedule
+## Token Rotation Schedule (Team Setups)
+
+> This section applies if you use dedicated bot accounts (e.g.,
+> `{org}-worker`, `{org}-reviewer`). Solo developers using a single
+> GitHub account can skip this.
 
 Bot account tokens should be rotated regularly for security.
 

@@ -379,10 +379,6 @@ it doesn't exist, create it with the same JSON shown above.
 In any Claude Code session (terminal or desktop), run `/mcp` to confirm
 all three servers are connected.
 
-> **Workshop attendees**: Ensure your MCP servers match this list so your
-> agent experience matches the instructor's demo. Run `bash scripts/doctor.sh`
-> (or `/doctor`) to verify.
-
 ## Customization
 
 ### Adding Project-Specific Context
