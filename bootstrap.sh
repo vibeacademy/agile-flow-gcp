@@ -931,6 +931,19 @@ phase4_workflow() {
 
     mark_phase_complete "phase4"
     print_success "Phase 4 complete! Workflow activated."
+
+    # Stamp installedAt in .agile-flow-version if not already set
+    if [ -f ".agile-flow-version" ]; then
+        local current_val
+        current_val=$(jq -r '.installedAt // "null"' .agile-flow-version 2>/dev/null)
+        if [ "$current_val" = "null" ]; then
+            local timestamp
+            timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            jq --arg ts "$timestamp" '.installedAt = $ts' .agile-flow-version > .agile-flow-version.tmp \
+                && mv .agile-flow-version.tmp .agile-flow-version
+            print_success "Stamped install time: $timestamp"
+        fi
+    fi
 }
 
 # ===========================================================================
