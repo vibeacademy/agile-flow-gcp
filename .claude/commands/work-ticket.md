@@ -144,3 +144,25 @@ what's failing, and recommended next steps.
 - Only work on tickets from the Ready column
 - One ticket at a time (no parallel work)
 - Agent is responsible for delivering a clean, CI-passing PR
+
+### Output Format
+
+Report each step with a Progress Line, then end your output with a Result Block:
+
+```
+→ Moved #21 to In Progress
+→ Created branch: feature/issue-21-health-check
+→ Implemented health check endpoint
+→ Tests passing (3/3)
+→ Pushed to origin
+→ Created PR #108
+→ Moved #21 to In Review
+
+---
+
+**Result:** PR created
+PR: #108 — feat: add health check endpoint
+Branch: feature/issue-21-health-check
+Ticket: #21 — moved to In Review
+Status: CI pending
+```

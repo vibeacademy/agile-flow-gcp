@@ -70,3 +70,17 @@ Before showing the draft to the user, verify:
 /create-ticket
 /create-ticket Add health check endpoint to the API
 ```
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Ticket created
+Issue: #45 — feat: add health check endpoint
+Priority: P1
+Size: S
+Column: Backlog
+```

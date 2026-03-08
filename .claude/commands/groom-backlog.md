@@ -66,3 +66,17 @@ The agent will report:
 - Recommendations for next grooming session
 
 See `docs/TICKET-FORMAT.md` for the canonical ticket format specification.
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Backlog groomed
+Moved to Ready: 4 tickets (#21, #22, #23, #24)
+Backlog remaining: 8 tickets
+Flags: 2 tickets need refinement (#30, #31)
+Next grooming: after current sprint completes
+```

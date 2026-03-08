@@ -90,3 +90,16 @@ Launch the agile-backlog-prioritizer agent to provide a quick status overview of
 - `/check-milestone` - Progress toward specific milestone
 - `/work-ticket` - Pick up next ticket from Ready
 - `/review-pr` - Review pending pull requests
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Sprint status — On Track
+Ready: 3 | In Progress: 2 | In Review: 1 | Done: 8
+Blockers: 0
+Action items: 2
+```

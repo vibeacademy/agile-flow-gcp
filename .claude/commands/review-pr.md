@@ -105,3 +105,16 @@ Escalate to the human reviewer with a detailed comment when:
 - **Disagreement with approach** — The implementation works but a fundamentally different approach would be better
 
 **Escalation format**: Start the comment with `⚠️ ESCALATION` and explain the concern, the options, and a recommendation.
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Review posted — GO
+PR: #108 — feat: add health check endpoint
+Required changes: 0
+Suggestions: 2 (non-blocking)
+```

@@ -49,7 +49,7 @@ Launch the agile-backlog-prioritizer agent to assess progress toward a specific 
 ## Milestone: <Name>
 **Target Date**: <Date from roadmap>
 **Projected Date**: <Based on velocity>
-**Status**: On Track | At Risk | Behind Schedule
+**Status**: On Track | At Risk | Blocked
 
 ### Progress Summary
 - Completed: X tasks (Y%)
@@ -97,3 +97,17 @@ Define milestones in `docs/PRODUCT-ROADMAP.md`:
 - Update PRODUCT-ROADMAP.md if dates need adjustment
 - Create new issues if gaps are identified
 - Defer scope to next milestone rather than compromise quality
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Milestone check — On Track
+Milestone: MVP Release (target: March 15)
+Progress: 12/18 tasks (67%)
+Blockers: 1 (#34 — API dependency)
+Projected: March 13 (-2 days)
+```
