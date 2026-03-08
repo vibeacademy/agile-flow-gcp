@@ -262,3 +262,18 @@ Scope is now locked. Next steps:
 
 Remember: Adding scope now requires a formal trade-off discussion.
 ```
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Scope locked
+Status: LOCKED
+Target launch: Q2 2025
+Features in scope: 12
+Open items: 0
+Document: docs/SCOPE-LOCK.md
+```

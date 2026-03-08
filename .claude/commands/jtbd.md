@@ -222,3 +222,17 @@ Write the output to **`docs/JOBS-TO-BE-DONE.md`** using the template below.
 After completing JTBD analysis:
 1. Run `/positioning` to define product positioning (uses both market research and JTBD as input)
 2. Run `/bootstrap-product` to create the PRD (reads all three artifacts and pre-populates questions)
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** JTBD analysis complete
+Core job: Manage class schedules and fill open slots
+Pain points identified: 4
+Underserved needs: 3
+Document: docs/JOBS-TO-BE-DONE.md
+```

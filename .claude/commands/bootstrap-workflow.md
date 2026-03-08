@@ -286,3 +286,22 @@ After bootstrap:
 3. **Invite team members** - Share repo access
 4. **Set up CI/CD** - Configure GitHub Actions
 5. **Schedule standups** - Daily `/sprint-status`
+
+### Output Format
+
+Report each phase with a Progress Line, then end with a Result Block:
+
+```
+→ Configured GitHub project board
+→ Set up branch protection rules
+→ Generated backlog from PRD (12 issues)
+→ Populated Ready column (4 tickets)
+
+---
+
+**Result:** Workflow setup complete
+Project board: configured
+Issues created: 12
+Ready column: 4 tickets
+Status: ready for development
+```

@@ -164,3 +164,21 @@ If you need to reset agents to template state:
 # Re-copy from template (loses customizations)
 git checkout -- .claude/agents/
 ```
+
+### Output Format
+
+Report each phase with a Progress Line, then end with a Result Block:
+
+```
+→ Read PRD and architecture docs
+→ Updated quality-engineer with project context
+→ Updated system-architect with platform details
+→ Updated 4 remaining agents
+
+---
+
+**Result:** Agent specialization complete
+Agents updated: 6
+Source: docs/PRODUCT-REQUIREMENTS.md, docs/TECHNICAL-ARCHITECTURE.md
+Next: /bootstrap-workflow
+```

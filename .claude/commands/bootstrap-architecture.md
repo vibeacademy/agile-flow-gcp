@@ -393,3 +393,22 @@ export default [
 ```
 
 This prevents ESLint from attempting to parse Python virtualenv files.
+
+### Output Format
+
+Report each phase with a Progress Line, then end with a Result Block:
+
+```
+→ Read PRODUCT-REQUIREMENTS.md
+→ Selected platform: Render
+→ Defined tech stack and data models
+→ Generated TECHNICAL-ARCHITECTURE.md
+
+---
+
+**Result:** Architecture definition complete
+Document: docs/TECHNICAL-ARCHITECTURE.md
+Platform: Render
+Stack: Next.js, Supabase, TypeScript
+Next: /bootstrap-agents
+```

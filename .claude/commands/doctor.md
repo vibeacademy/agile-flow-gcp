@@ -81,3 +81,16 @@ configuration. Surfaces every issue that could block a workshop participant.
   404 or 403 for users without admin access. Map these responses to
   WARN or SKIP rather than FAIL — the checks are informational and do
   not indicate a broken setup.
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Health check complete
+Local: 8 pass, 1 warn, 0 fail
+Remote: 3 pass, 1 warn, 0 fail
+Ready for workshop: YES
+```

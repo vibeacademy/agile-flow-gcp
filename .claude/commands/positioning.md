@@ -231,3 +231,17 @@ Write the output to **`docs/POSITIONING-ANALYSIS.md`** using the template below.
 After completing positioning analysis:
 1. Run `/bootstrap-product` to create the PRD — it will read all three research artifacts (market research, JTBD, positioning) and pre-populate 10 of 25 questions automatically
 2. Your positioning statement will appear directly in the PRD's value proposition
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Positioning analysis complete
+Category: Boutique fitness management
+Strategy: Win subsegment
+Alternatives evaluated: 4
+Document: docs/POSITIONING-ANALYSIS.md
+```

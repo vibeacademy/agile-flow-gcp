@@ -102,3 +102,17 @@ The Product Owner provides input on:
 - Delivery completeness
 - Technical quality
 - Team readiness
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Release decision — GO
+Release: v2.0
+Risks: 1 medium (monitoring coverage)
+Conditions: none
+Recommended date: March 15
+```

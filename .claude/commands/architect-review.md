@@ -119,3 +119,17 @@ Proposed
 ```
 /architect-review "How to scale the search service to 10x traffic"
 ```
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Architecture review complete
+Topic: Authentication service design
+Recommendation: OAuth2 with PKCE flow
+Options evaluated: 3
+Risks: 1 (token refresh complexity)
+```

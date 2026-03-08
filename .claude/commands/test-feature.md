@@ -116,3 +116,17 @@ Launch the quality-engineer agent to create a comprehensive test plan and/or exe
 - After completing implementation
 - Before release to validate critical paths
 - When investigating reported bugs
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Test report — GO
+Feature: user authentication flow
+Tests: 8 passed, 0 failed
+Coverage: 91%
+Required changes: 0
+```

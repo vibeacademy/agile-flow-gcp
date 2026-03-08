@@ -380,3 +380,21 @@ After completing this questionnaire:
 1. Review the generated PRD and Roadmap
 2. Run `/bootstrap-architecture` for Phase 2 (Technical Architecture)
 3. The System Architect will reference your PRD for technical decisions
+
+### Output Format
+
+Report each phase with a Progress Line, then end with a Result Block:
+
+```
+→ Loaded 2 research artifacts
+→ Completed questionnaire (25 questions)
+→ Generated PRODUCT-REQUIREMENTS.md
+→ Generated PRODUCT-ROADMAP.md
+
+---
+
+**Result:** Product definition complete
+Documents: docs/PRODUCT-REQUIREMENTS.md, docs/PRODUCT-ROADMAP.md
+Features defined: 8 (3 MVP, 5 future)
+Next: /bootstrap-architecture
+```

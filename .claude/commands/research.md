@@ -186,3 +186,17 @@ After completing market research:
 1. Run `/jtbd` to analyze user jobs and pain points (uses this research as input)
 2. Run `/positioning` to define product positioning (uses both prior artifacts)
 3. Run `/bootstrap-product` to create the PRD (reads all three artifacts and pre-populates questions)
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Market research complete
+Industry: SaaS / Developer Tools
+Competitors analyzed: 5
+Confidence: Partially validated
+Document: docs/MARKET-RESEARCH.md
+```

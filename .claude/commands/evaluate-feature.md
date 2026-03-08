@@ -91,3 +91,17 @@ The **Product Manager** (agile-product-manager) owns this decision.
 After evaluation:
 - If BUILD: Product Owner (agile-backlog-prioritizer) handles execution planning
 - If DEFER/DECLINE: Product Manager communicates decision
+
+### Output Format
+
+End your output with a Result Block:
+
+```
+---
+
+**Result:** Feature evaluation — BUILD
+Feature: Bulk export for enterprise users
+Strategic fit: Strong
+Revenue impact: High
+Handoff: Product Owner for execution planning
+```
