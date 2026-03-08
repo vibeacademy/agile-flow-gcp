@@ -99,6 +99,39 @@ permissions.
 - Code blocks with language specifiers
 - Tables for structured data
 
+### Agent Output Format
+
+Every agent output MUST follow these patterns. Full spec: `docs/AGENT-OUTPUT-STANDARD.md`
+
+**Result Block** — every completed action ends with:
+
+```
+---
+
+**Result:** <one-line outcome>
+<key-value pairs, one per line>
+```
+
+**Progress Lines** — multi-step workflows report each step:
+
+```
+→ Step completed
+✗ Step failed — see output above
+```
+
+**Standard Vocabulary** — use these terms only, no synonyms:
+
+| Category | Terms |
+|----------|-------|
+| Decisions | GO / NO-GO / CONDITIONAL |
+| Status | On Track / At Risk / Blocked |
+| Findings | Required change (blocking) / Suggestion (non-blocking) |
+| Effort | S (1-4h) / M (0.5-2d) / L (2-5d) / XL (5+d) |
+
+**GitHub References** — first mention: `#N — title`. Subsequent: bare `#N`.
+
+**Section Order** (multi-section reports): Context → Findings → Recommendations → Result Block
+
 <!-- FRAMEWORK:END -->
 
 ---
