@@ -2,8 +2,8 @@ import * as Sentry from "@sentry/nextjs";
 import { createTransport } from "@sentry/core";
 
 function detectEnvironment(): string {
-  // Render sets IS_PULL_REQUEST_PREVIEW=true for PR preview deploys
-  if (process.env.IS_PULL_REQUEST_PREVIEW === "true") return "preview";
+  // Render sets IS_PULL_REQUEST=true for PR preview deploys
+  if (process.env.IS_PULL_REQUEST === "true") return "preview";
   if (process.env.NODE_ENV === "production") return "production";
   return process.env.NODE_ENV || "development";
 }
