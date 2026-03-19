@@ -252,6 +252,7 @@ Consider adding to your workflow:
 - [ ] Review any audit alert issues
 - [ ] Check workflow run status
 - [ ] Verify no failed verification tests
+- [ ] Run `/prune-memory` to review stale knowledge graph entities
 
 ### Monthly
 
