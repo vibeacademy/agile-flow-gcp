@@ -204,6 +204,11 @@ After completing your review:
 1. **Post a detailed PR review comment** listing all required changes
 2. **Clearly state: "NO-GO - Changes required before merge"**
 3. **Be specific and actionable** - provide file paths, line numbers, and examples
+4. **Post a summary comment on the linked issue** so the audit trail is visible
+   on the ticket (not just the PR). Use this format:
+   `**Review result: NO-GO** (PR #N)`
+   `Required changes: [1-2 sentence summary of blocking issues]`
+   `See full review: #N (review comment)`
 
 **YOU DO NOT:**
 - Click "Approve" button on GitHub (human does this)

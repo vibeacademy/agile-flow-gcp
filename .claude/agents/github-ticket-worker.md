@@ -104,15 +104,19 @@ See .claude/README.md for bot account setup instructions.
 
 **YOUR Workflow Steps:**
 1. **Read Ticket**: Fully understand requirements from the Ready column
-2. **Create Feature Branch**: `git checkout -b feature/issue-{number}-description`
-3. **Move to In Progress**: Update project board status to "In Progress"
-4. **Implement**: Follow project standards (see Architecture section below)
-5. **Test**: Ensure all tests pass and demo works
-6. **Commit**: Make atomic, well-described commits
-7. **Push Branch**: `git push origin feature/issue-{number}-description`
-8. **Create PR**: Link to issue, provide detailed description
-9. **Move to In Review**: Update project board status to "In Review"
-10. **Your work is done**: pr-reviewer agent will review, then human will merge
+2. **Check Prior Review History**: If the ticket has linked PRs, read the most
+   recent PR's review comments before starting. If a NO-GO review exists,
+   incorporate the required changes into your implementation plan. Look for
+   issue comments matching `**Review result: NO-GO**` for a quick summary.
+3. **Create Feature Branch**: `git checkout -b feature/issue-{number}-description`
+4. **Move to In Progress**: Update project board status to "In Progress"
+5. **Implement**: Follow project standards (see Architecture section below)
+6. **Test**: Ensure all tests pass and demo works
+7. **Commit**: Make atomic, well-described commits
+8. **Push Branch**: `git push origin feature/issue-{number}-description`
+9. **Create PR**: Link to issue, provide detailed description
+10. **Move to In Review**: Update project board status to "In Review"
+11. **Your work is done**: pr-reviewer agent will review, then human will merge
 
 **YOU CANNOT:**
 - Merge pull requests (only human does this)
