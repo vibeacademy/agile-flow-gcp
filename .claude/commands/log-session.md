@@ -78,6 +78,47 @@ Use the template structure from existing journals in `reports/session-journals/`
      `→ Run /validate-memory to create missing entities`
    - Summary: `→ Memory validation: {found}/{total} completed tickets have CompletedTicket entities`
 4. Present a brief summary to the user
+5. **Consolidate session knowledge** — extract insights missed during the
+   session and propose Memory MCP entities. Skip this step with an info
+   message if Memory MCP is not configured.
+
+   **Step 5a: Gather signals**
+   - Read PR diffs and commit messages for PRs merged this session
+   - Review the "Challenges and Mitigations" and "Insights and Learnings"
+     sections from the journal you just wrote
+
+   **Step 5b: Structured reflection**
+   Prompt yourself with these questions, using the gathered signals:
+   - What was the root cause of any bugs or CI failures encountered?
+   - What patterns were discovered, reused, or established?
+   - What would you do differently next time?
+   - Were there gotchas that would trip up a future agent on similar work?
+
+   **Step 5c: Check for duplicates**
+   For each potential insight, query Memory MCP (`search_nodes`) to verify
+   no existing entity already captures it. Skip duplicates.
+
+   **Step 5d: Propose entities**
+   Based on reflection, propose up to 5 new Memory MCP entities:
+   - `LessonLearned` — gotchas, workarounds, root cause discoveries
+   - `PatternDiscovered` — reusable patterns established or confirmed
+
+   Present each proposed entity to the user with a preview:
+   ```
+   Proposed: Lesson-{short-name}
+   Type: LessonLearned
+   Observations:
+     - {observation 1}
+     - {observation 2}
+   Create? [present to user for confirmation]
+   ```
+
+   **Step 5e: Write confirmed entities**
+   Create only the entities the user confirms. Report:
+   `→ Created {N} memory entities from session consolidation`
+
+   If no insights worth recording, report:
+   `→ No new memory entities proposed — session knowledge already captured`
 
 ## Related Commands
 
