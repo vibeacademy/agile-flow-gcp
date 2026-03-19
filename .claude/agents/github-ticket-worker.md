@@ -294,9 +294,12 @@ so institutional knowledge persists across sessions.
 
 | Entity Type | Naming Convention | When Created |
 |-------------|-------------------|--------------|
-| CompletedTicket | CompletedTicket-{issue} | After PR merge confirmed |
-| PatternDiscovered | Pattern-{short-name} | When a reusable pattern emerges |
-| LessonLearned | Lesson-{short-name} | When a gotcha or workaround is found |
+| CompletedTicket | `CompletedTicket-{issue-number}` | After PR merge confirmed |
+| PatternDiscovered | `Pattern-{domain}-{short-name}` | When a reusable pattern emerges |
+| LessonLearned | `Lesson-{domain}-{short-name}` | When a gotcha or workaround is found |
+
+See `docs/MEMORY-ARCHITECTURE.md` for full naming conventions and the
+`{domain}` field definition.
 
 ## Framework-Specific Testing Patterns
 

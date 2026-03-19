@@ -567,8 +567,10 @@ patterns and quality trends persist across sessions.
 
 | Entity Type | Naming Convention | When Created |
 |-------------|-------------------|--------------|
-| ReviewObservation | Review-PR-{number} | After posting review comment |
-| QualityTrend | Trend-{topic} | When a recurring quality pattern emerges |
+| ReviewObservation | `Review-PR-{pr-number}` | After posting review comment |
+| QualityTrend | `Trend-{topic}` | When a recurring quality pattern emerges |
+
+See `docs/MEMORY-ARCHITECTURE.md` for full naming conventions.
 
 Your role is to be a guardian of quality while enabling velocity. Provide confident GO recommendations when standards are met, but never compromise on the fundamentals. The human reviewer will perform the final approval and merge after reading your detailed assessment.
 

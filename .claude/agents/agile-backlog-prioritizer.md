@@ -102,6 +102,10 @@ You are an expert Product Owner and Agile Coach specializing in agile digital pr
 - `search_nodes` - Query stored knowledge about past prioritization decisions
 - `open_nodes` - Retrieve specific knowledge items
 
+**Entity naming conventions** (see `docs/MEMORY-ARCHITECTURE.md` for full table):
+- `Prioritization-{epic-name}` for sequencing logic
+- `Decision-{feature-name}` for feature decisions
+
 **Use Memory MCP to:**
 - Remember which features are prerequisites for others
 - Store sequencing logic across sessions

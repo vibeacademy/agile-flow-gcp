@@ -85,13 +85,24 @@ structured facts that any agent can query.
 
 **Entity types and naming conventions:**
 
-| Entity Type | Naming Convention | Created By | When Created |
-|-------------|-------------------|------------|--------------|
-| CompletedTicket | `CompletedTicket-{issue}` | Ticket Worker | After PR merge confirmed |
-| PatternDiscovered | `Pattern-{short-name}` | Ticket Worker | When a reusable pattern emerges |
-| LessonLearned | `Lesson-{short-name}` | Ticket Worker | When a gotcha or workaround is found |
-| ReviewObservation | `Review-PR-{number}` | PR Reviewer | After posting review comment |
-| QualityTrend | `Trend-{topic}` | PR Reviewer | When a recurring quality pattern emerges |
+All agents must follow these conventions when creating Memory MCP entities.
+Consistent naming is critical because Memory MCP uses keyword search, not
+embeddings — retrieval quality depends entirely on predictable entity names.
+
+| Entity Type | Convention | Example | Created By |
+|-------------|-----------|---------|------------|
+| CompletedTicket | `CompletedTicket-{issue-number}` | `CompletedTicket-142` | Ticket Worker |
+| ReviewObservation | `Review-PR-{pr-number}` | `Review-PR-150` | PR Reviewer |
+| PatternDiscovered | `Pattern-{domain}-{short-name}` | `Pattern-auth-jwt-refresh` | Ticket Worker |
+| LessonLearned | `Lesson-{domain}-{short-name}` | `Lesson-db-n-plus-one-fix` | Ticket Worker |
+| FeatureDecision | `Decision-{feature-name}` | `Decision-social-login` | Product Manager |
+| PrioritizationLogic | `Prioritization-{epic-name}` | `Prioritization-onboarding-flow` | Backlog Prioritizer |
+| QualityTrend | `Trend-{topic}` | `Trend-test-coverage-gaps` | PR Reviewer |
+
+**The `{domain}` field** should match the ticket's epic label or primary
+domain area (e.g., `auth`, `db`, `ui`, `api`, `infra`, `ci`, `docs`).
+Use lowercase, hyphen-separated words. Keep names short — they are search
+keys, not descriptions. Put descriptive detail in observations instead.
 
 **Relation types:**
 
