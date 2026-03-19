@@ -15,7 +15,7 @@ Think of an agentic system as an operating system:
 | **CPU** | LLM (Claude) | Processes instructions, generates output |
 | **RAM** | Context window | Conversation history, tool results, system prompt |
 | **DISK** | External persistence | GitHub board, Memory MCP, session journals, git history, docs/ |
-| **Memory Controller** | Slash commands + agent protocols | `/log-session`, `/work-ticket`, post-merge recording |
+| **Memory Controller** | Slash commands + agent protocols | `/log-session`, `/work-ticket`, `/validate-memory`, `/prune-memory`, post-merge recording |
 
 **RAM is fast but volatile.** Everything in the context window disappears
 when the session ends. If knowledge must survive a session boundary, it must
@@ -181,11 +181,18 @@ DISK -> RAM
   +-- CLAUDE.md loaded (procedural memory)
   +-- Agent policy loaded (procedural memory)
   +-- Command file loaded (procedural memory)
-  +-- search_nodes("recent patterns") (semantic memory -> RAM)
+  +-- /work-ticket step 3: context paging (semantic memory -> RAM)
+      +-- search_nodes for Pattern-* matching ticket keywords (cap: 3)
+      +-- search_nodes for Lesson-* matching ticket keywords (cap: 3)
+      +-- search_nodes for CompletedTicket-* in same epic (cap: 4)
 ```
 
-The agent begins with procedural memory in context. It may query semantic
-memory for relevant prior knowledge (e.g., patterns from similar tickets).
+The agent begins with procedural memory in context. When `/work-ticket`
+runs, step 3 ("Load Context from Past Sessions") automatically queries
+semantic memory for relevant patterns, lessons, and prior completed tickets
+related to the current ticket's domain. Results are capped at 10 entities
+to avoid context pollution. This step is silently skipped if Memory MCP
+is not configured or returns no results.
 
 ### During Session
 
@@ -208,15 +215,25 @@ has occurred yet.
 RAM -> DISK
   |
   +-- create_entities: CompletedTicket-{issue} (semantic memory)
-  +-- create_entities: Pattern-{name} (semantic memory, if applicable)
-  +-- create_entities: Lesson-{name} (semantic memory, if applicable)
+  +-- create_entities: Pattern-{domain}-{name} (semantic memory, if applicable)
+  +-- create_entities: Lesson-{domain}-{name} (semantic memory, if applicable)
   +-- /log-session writes journal (episodic memory)
+  |     +-- Step 3: validates CompletedTicket entities exist
+  |     +-- Step 5: consolidation — proposes LessonLearned/PatternDiscovered
+  |           entities from PR diffs and structured reflection (user confirms)
   +-- git commit preserves code changes (procedural memory, if conventions changed)
   +-- Board state updated: ticket -> Done
 ```
 
-This is the critical persistence step. Without explicit writes, everything
+This is the critical persistence step. `/log-session` now includes two
+safety nets: step 3 validates that CompletedTicket entities were recorded
+(flagging any that were missed), and step 5 extracts additional insights
+via structured reflection on PR diffs and challenges. Both steps require
+user confirmation before writing. Without these explicit writes, everything
 learned during the session is lost.
+
+For on-demand validation outside of `/log-session`, run `/validate-memory`
+to check for missing entities and interactively create them.
 
 ### Next Session
 
@@ -265,25 +282,29 @@ Returns all entities with "authentication" in their name or observations.
 |------------|---------|---------|
 | **Protocol-driven** | Agent policy mandates the write | Ticket Worker records CompletedTicket after merge |
 | **Command-driven** | Slash command includes write step | `/log-session` creates a session journal |
+| **Consolidation-driven** | `/log-session` step 5 proposes entities from PR diffs and reflection | LessonLearned or PatternDiscovered entities proposed after structured reflection |
+| **Validation-driven** | `/validate-memory` or `/log-session` step 3 detects missing entities | Missing CompletedTicket entities created interactively |
 | **Judgment-driven** | Agent decides knowledge is worth preserving | Ticket Worker records a PatternDiscovered when a reusable pattern emerges |
 
 Protocol-driven and command-driven writes are reliable — they happen every
-time. Judgment-driven writes depend on the agent recognizing that something
-is worth recording. The Memory Schema tables in agent policies provide
-guidance on what qualifies.
+time. Consolidation-driven and validation-driven writes act as safety nets,
+catching knowledge that would otherwise be lost. Judgment-driven writes
+depend on the agent recognizing that something is worth recording. The
+Memory Schema tables in agent policies provide guidance on what qualifies.
 
 ---
 
-## 5. Known Gaps
+## 5. Known Gaps and Mitigations
 
-| Gap | Textbook Recommendation | Current State | When It Matters | Mitigation Path |
-|-----|------------------------|---------------|-----------------|-----------------|
-| **No automatic memory pruning** | Time-decay scoring to retire stale entities | Entities accumulate indefinitely | After 50+ sessions when search results become noisy | Ticket #146 — memory pruning command |
-| **No post-session validation** | Verify that required memory writes occurred | No enforcement — agents may skip writes | When a session ends without recording CompletedTicket | Ticket #142 — post-session validation hook |
-| **Keyword search only** | Semantic similarity search for fuzzy retrieval | Memory MCP uses exact keyword matching | When searching for concepts (not exact terms) | Depends on Memory MCP server capabilities |
-| **No entity naming enforcement** | Validation against naming conventions | Naming is advisory, not enforced | When inconsistent names make search unreliable | Ticket #147 — entity naming conventions doc |
-| **No cross-session context paging** | Automatic retrieval of relevant prior context | Agents must manually search_nodes | When starting work on a ticket related to prior work | Ticket #143 — ticket-aware context paging |
-| **No backward-move audit trail** | Require explanation when tickets move backward | Board moves are silent | When a ticket moves from In Review back to In Progress without explanation | Ticket #144 — backward ticket move comments |
+| Gap | Status | Mitigation |
+|-----|--------|------------|
+| **Memory pruning** | Resolved | `/prune-memory` command with time-decay scoring: episodic entities >60d archived, semantic >90d flagged for review, <30d protected. User confirms before deletion. |
+| **Post-session validation** | Resolved | `/log-session` step 3 validates CompletedTicket entities exist. `/validate-memory` available for on-demand checking and interactive entity creation. |
+| **Keyword search only** | Open | Memory MCP uses exact keyword matching. Mitigated by consistent naming conventions (Section 2) and domain-prefixed entity names. Semantic search depends on future MCP server capabilities. |
+| **Entity naming enforcement** | Resolved | Canonical naming convention table in Section 2 covers all 7 entity types. Agent policy files reference the table. Enforcement is advisory, not automated. |
+| **Cross-session context paging** | Resolved | `/work-ticket` step 3 ("Load Context from Past Sessions") automatically queries for patterns, lessons, and completed tickets matching the current ticket's domain. Capped at 10 entities. |
+| **Backward-move audit trail** | Resolved | PR reviewer posts `**Review result: NO-GO** (PR #N)` summary on the issue (not just PR). Ticket worker checks linked PR review comments before starting implementation on previously-reviewed tickets. |
+| **Insight extraction** | Resolved | `/log-session` step 5 consolidation: reads PR diffs, applies structured reflection questions, proposes up to 5 LessonLearned/PatternDiscovered entities with user confirmation before writing. |
 
 ---
 
@@ -300,12 +321,14 @@ connections. Document the relation types in agent policies so all agents
 use consistent vocabulary.
 
 **Increase retrieval quality.** Write observations with searchable
-keywords. Use consistent naming conventions. Prune stale entities
-periodically (see gap table above).
+keywords. Use consistent naming conventions (see Section 2). Prune stale
+entities periodically with `/prune-memory`.
 
-**Monitor memory health.** Periodically run `read_graph` to inspect the
-knowledge graph. Look for orphaned entities, inconsistent naming, and
-excessive observation counts that may indicate redundant recording.
+**Monitor memory health.** Run `/prune-memory` weekly (included in the
+`docs/MAINTENANCE.md` checklist) to review stale entities. Run
+`/validate-memory` after sessions to verify CompletedTicket coverage.
+Look for orphaned entities, inconsistent naming, and excessive observation
+counts that may indicate redundant recording.
 
 **Keep procedural memory lean.** The context engineering principles in
 [CONTEXT-OPTIMIZATIONS.md](CONTEXT-OPTIMIZATIONS.md) apply to memory
