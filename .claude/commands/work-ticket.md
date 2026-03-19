@@ -48,12 +48,23 @@ the user if any check fails — do not continue with partial tooling.
         **do not proceed until the user explicitly approves**
      5. Update the GitHub issue with the user-approved version
    - If all 4 sections are present → proceed normally (no delay)
-3. **Setup** — Create branch, move to In Progress
-4. **Implement** — Follow CLAUDE.md standards, write clean code, follow existing patterns
-5. **Test Locally** — Run lint and tests. Do NOT push if any fail.
-6. **Push** — If pre-push hook fails, fix and retry (see Reference below)
-7. **Create PR** — Detailed description, link to issue
-8. **Monitor CI** — Watch checks, auto-fix failures, move to In Review when green
+3. **Load Context from Past Sessions** — Query Memory MCP for relevant
+   institutional knowledge (silently skip if Memory MCP is not configured
+   or returns no results):
+   - Extract domain keywords from the ticket title and labels
+   - `search_nodes` for `Pattern-` matching those keywords (cap: 3 results)
+   - `search_nodes` for `Lesson-` matching those keywords (cap: 3 results)
+   - If the ticket has a parent epic, `search_nodes` for `CompletedTicket-`
+     in that epic (cap: 4 results, most recent first)
+   - Total cap: 10 entities. Summarize findings in a brief
+     "Context from past sessions" note before proceeding.
+   - If no relevant entities found, produce no output — proceed silently.
+4. **Setup** — Create branch, move to In Progress
+5. **Implement** — Follow CLAUDE.md standards, write clean code, follow existing patterns
+6. **Test Locally** — Run lint and tests. Do NOT push if any fail.
+7. **Push** — If pre-push hook fails, fix and retry (see Reference below)
+8. **Create PR** — Detailed description, link to issue
+9. **Monitor CI** — Watch checks, auto-fix failures, move to In Review when green
 
 ## Quick Fix Protocol
 
