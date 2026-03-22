@@ -438,7 +438,11 @@ jobs:
           echo "Configuring auth redirect URLs for Supabase branch: $BRANCH_REF"
 
           # Use the actual Render preview URL (not a hardcoded pattern)
+          # Include both Next.js (/api/auth/callback) and FastAPI (/auth/callback)
+          # callback paths so the template works regardless of framework.
+          # See docs/PATTERN-LIBRARY.md #1
           PREVIEW_URL_CALLBACK="${PREVIEW_URL}/auth/callback"
+          PREVIEW_URL_CALLBACK_NEXTJS="${PREVIEW_URL}/api/auth/callback"
           PREVIEW_BASE_URL="$PREVIEW_URL"
 
           echo "Preview base URL: $PREVIEW_BASE_URL"
@@ -477,29 +481,33 @@ jobs:
             CURRENT_REDIRECT_URLS=$(echo "$AUTH_CONFIG" | jq -r '.uri_allow_list // ""')
             echo "Current redirect URLs: $CURRENT_REDIRECT_URLS"
 
-            # Check if preview URL is already in the list
-            if echo "$CURRENT_REDIRECT_URLS" | grep -q "$PREVIEW_URL_CALLBACK"; then
-              echo "Preview URL already in redirect list"
+            # Check if preview URLs are already in the list
+            if echo "$CURRENT_REDIRECT_URLS" | grep -q "$PREVIEW_URL_CALLBACK" && \
+               echo "$CURRENT_REDIRECT_URLS" | grep -q "$PREVIEW_URL_CALLBACK_NEXTJS"; then
+              echo "Preview URLs already in redirect list"
               echo "auth_configured=already_configured" >> $GITHUB_OUTPUT
               AUTH_CONFIGURED="true"
               break
             fi
 
-            # Build new redirect URLs list (append to existing)
+            # Build new redirect URLs list (append both callback paths)
+            URLS_TO_ADD="${PREVIEW_URL_CALLBACK},${PREVIEW_URL_CALLBACK_NEXTJS}"
             if [ -n "$CURRENT_REDIRECT_URLS" ]; then
-              NEW_REDIRECT_URLS="${CURRENT_REDIRECT_URLS},${PREVIEW_URL_CALLBACK}"
+              NEW_REDIRECT_URLS="${CURRENT_REDIRECT_URLS},${URLS_TO_ADD}"
             else
-              NEW_REDIRECT_URLS="${PREVIEW_URL_CALLBACK}"
+              NEW_REDIRECT_URLS="${URLS_TO_ADD}"
             fi
 
             echo "New redirect URLs: $NEW_REDIRECT_URLS"
 
             # Update auth config: uri_allow_list AND site_url
+            # CRITICAL: site_url must be the base URL only, NOT the callback path.
+            # Callback paths go in uri_allow_list. See docs/PATTERN-LIBRARY.md #1, #3
             UPDATE_RESPONSE=$(curl -s -X PATCH \
               "https://api.supabase.com/v1/projects/${BRANCH_REF}/config/auth" \
               -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "{\"uri_allow_list\": \"$NEW_REDIRECT_URLS\", \"site_url\": \"${PREVIEW_BASE_URL}/auth/callback\"}")
+              -d "{\"uri_allow_list\": \"$NEW_REDIRECT_URLS\", \"site_url\": \"${PREVIEW_BASE_URL}\"}")
 
             # Check if update was successful
             if echo "$UPDATE_RESPONSE" | jq -e '.uri_allow_list' > /dev/null 2>&1; then

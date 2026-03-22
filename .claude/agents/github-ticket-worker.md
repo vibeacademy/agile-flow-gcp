@@ -219,6 +219,57 @@ there is no linked issue:
 - Create PRs without moving ticket to "In Review" (when a ticket is linked)
 - Work on multiple tickets simultaneously (one at a time)
 
+## Stack Guardrails (Render + Supabase)
+
+Before implementing any of the following, read `docs/PATTERN-LIBRARY.md` for
+known pitfalls and working code samples:
+- Supabase auth (magic links, redirects, callbacks)
+- Render deployment config (render.yaml, env vars, preview environments)
+- GitHub Actions workflows (reusable workflows, secret gating)
+- next.config.ts changes (output mode, rewrites, redirects)
+
+The 5 most dangerous silent failures are listed below. All return success
+signals while doing the wrong thing.
+
+1. **Supabase JWT ref routing.** Supabase routes requests by the `ref` claim
+   in the API key JWT, NOT by the URL. Changing `SUPABASE_URL` to a branch URL
+   while keeping production keys silently routes to production. You must update
+   ALL THREE variables (`SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY`)
+   with branch-specific values. The `service_role_key` must be fetched from the
+   Supabase Management API — the standard GitHub Action only returns `anon_key`.
+
+2. **Render env var updates require redeploy.** The Render API returns 200 when
+   you update an environment variable, and the dashboard shows the new value,
+   but the running container never sees it. Always trigger a redeploy after
+   updating env vars via API.
+
+3. **Auth `site_url` is base URL only.** When configuring Supabase auth for
+   preview environments, `site_url` must be the base URL (e.g.,
+   `https://app-pr-42.onrender.com`), NOT the callback path. Put callback
+   paths in `uri_allow_list` instead. The callback path differs by framework:
+   Next.js uses `/api/auth/callback`, FastAPI uses `/auth/callback`.
+
+4. **Render reverse proxy headers.** Server-side redirect code must read
+   `X-Forwarded-Host` and `X-Forwarded-Proto` headers to construct the
+   external origin. Using `request.url` or `new URL(path, request.url)`
+   returns Render's internal origin (`localhost:10000`), silently breaking
+   redirects. This works correctly in local dev, so you won't catch it until
+   deployment.
+
+5. **Reusable workflows need `workflow_call` trigger.** If a GitHub Actions
+   workflow is called by another workflow via `uses: ./.github/workflows/ci.yml`,
+   the called workflow MUST have `workflow_call:` in its `on:` block. Without
+   it, GitHub silently shows "0 jobs" with a vague error. This can go undetected
+   for weeks.
+
+6. **Magic link auth needs two callback handlers.** Before implementing auth,
+   read Pattern #24 in `docs/PATTERN-LIBRARY.md`. Magic links put tokens in
+   the URL hash fragment (`#access_token=...`) which never reaches the server.
+   You need BOTH `app/api/auth/callback/route.ts` (server-side, for code/PKCE)
+   AND `app/(auth)/auth/callback/page.tsx` (client-side, for hash fragments).
+   Without the client-side page, auth silently fails — the user clicks the
+   magic link, lands on the callback URL, and gets sent back to login.
+
 ## Decision-Making Framework
 
 - **When uncertain about requirements**: Ask clarifying questions in the ticket before implementing

@@ -3,8 +3,12 @@ services:
     name: agile-flow-starter
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build && cp -r .next/static .next/standalone/.next/static
-    startCommand: node .next/standalone/server.js
+    # WARNING: Do not use standalone mode (node .next/standalone/server.js) —
+    # static file copying is unreliable on Render, causing CSS/JS 404s.
+    # Use `npm start` (next start) which handles static files natively.
+    # See docs/PATTERN-LIBRARY.md #9
+    buildCommand: npm install && npm run build
+    startCommand: npm start
     healthCheckPath: /api/health
     previewsEnabled: true
     envVars:

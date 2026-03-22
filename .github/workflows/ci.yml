@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # REQUIRED: preview-deploy.yml calls this workflow via
+  # `uses: ./.github/workflows/ci.yml`. Without workflow_call here,
+  # GitHub silently shows "0 jobs" with no useful error.
+  # See docs/PATTERN-LIBRARY.md #16
+  workflow_call:
 
 jobs:
   lint:
