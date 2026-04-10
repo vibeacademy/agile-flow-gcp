@@ -19,28 +19,28 @@ The System Architect will read your PRD and help you define:
 
 ## Process
 
-### 0. Platform Selection
+### 0. Platform (Fixed)
 
-Before diving into architecture, ask the user about their deployment platform:
+This template is hard-configured for **Google Cloud Platform**:
 
-```
-What platform will you deploy to?
+- **Compute**: Cloud Run (serverless containers, scale-to-zero)
+- **Container registry**: Artifact Registry
+- **Secrets**: Secret Manager
+- **Database**: Neon (serverless Postgres with per-PR branching)
+- **Auth**: Workload Identity Federation (SA key fallback for workshops)
 
-1. Render (Recommended for this template)
-2. Cloudflare (Workers/Pages)
-3. Vercel
-4. Railway
-5. Fly.io
-6. Other (please specify)
-
-Enter a number (1-6):
-```
+If you need a different platform, fork the upstream
+[vibeacademy/agile-flow](https://github.com/vibeacademy/agile-flow)
+repository instead — it ships with Render as the default and supports
+Vercel, Cloudflare, Railway, and Fly.io.
 
 Write the platform choice to `.claude/PROJECT.md`:
 
 ```markdown
 ## Platform
-- **Hosting**: [selected platform]
+- **Hosting**: gcp
+- **Compute**: Cloud Run
+- **Database**: Neon
 - **Selected**: [date]
 ```
 
@@ -131,7 +131,8 @@ this functionality. The receiver has four responsibilities:
 
 1. **Self-DSN construction** — On startup, if no `SENTRY_DSN` env var is
    set, construct a DSN pointing back at the app itself using
-   `RENDER_EXTERNAL_URL` (or `APP_URL` as fallback). Format:
+   `NEXT_PUBLIC_APP_URL` (baked at build time via `--build-arg`) or
+   `APP_URL` (runtime override via `gcloud run services update`). Format:
    `https://self@{host}/api/error-events/0`. Initialize the Sentry SDK
    with this DSN so unhandled exceptions are sent to the app's own
    endpoint.
@@ -156,8 +157,8 @@ this functionality. The receiver has four responsibilities:
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `SENTRY_DSN` | No | External Sentry DSN (bypasses self-receiver) |
-| `RENDER_EXTERNAL_URL` | Auto | Provided by Render; used to build self-DSN |
-| `APP_URL` | No | Fallback if not on Render |
+| `NEXT_PUBLIC_APP_URL` | Yes (zero-config) | Public service URL; baked at build time |
+| `APP_URL` | No | Runtime override for self-DSN URL construction |
 | `GITHUB_TOKEN` | Yes | Creates GitHub issues from errors |
 | `GITHUB_REPOSITORY` | Yes | Target repo, e.g. `org/repo` |
 
@@ -232,7 +233,7 @@ This phase creates:
 - Search: [e.g., Elasticsearch] (if needed)
 
 ### Infrastructure
-- Hosting: [e.g., Render/Cloudflare/Vercel/Railway/Fly.io]
+- Hosting: GCP Cloud Run (Artifact Registry, Secret Manager, Neon)
 - CI/CD: [e.g., GitHub Actions]
 - Monitoring: [e.g., DataDog]
 
@@ -400,7 +401,7 @@ Report each phase with a Progress Line, then end with a Result Block:
 
 ```
 → Read PRODUCT-REQUIREMENTS.md
-→ Selected platform: Render
+→ Selected platform: GCP Cloud Run (fixed)
 → Defined tech stack and data models
 → Generated TECHNICAL-ARCHITECTURE.md
 
@@ -408,7 +409,7 @@ Report each phase with a Progress Line, then end with a Result Block:
 
 **Result:** Architecture definition complete
 Document: docs/TECHNICAL-ARCHITECTURE.md
-Platform: Render
+Platform: GCP Cloud Run
 Stack: Next.js, Supabase, TypeScript
 Next: /bootstrap-agents
 ```

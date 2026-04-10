@@ -2,8 +2,9 @@ import * as Sentry from "@sentry/nextjs";
 import { createTransport } from "@sentry/core";
 
 function detectEnvironment(): string {
-  // Render sets IS_PULL_REQUEST=true for PR preview deploys
-  if (process.env.IS_PULL_REQUEST === "true") return "preview";
+  // The preview-deploy.yml workflow sets PR_NUMBER on tagged revisions.
+  // Production revisions don't have PR_NUMBER set.
+  if (process.env.PR_NUMBER) return "preview";
   if (process.env.NODE_ENV === "production") return "production";
   return process.env.NODE_ENV || "development";
 }
@@ -20,8 +21,14 @@ export function register() {
       // Zero-config: route error events to our own /api/error-events
       // endpoint using a custom transport. The tunnel option only works
       // client-side; server-side requires an absolute URL transport.
+      //
+      // Cloud Run does not expose the service URL as an env var, so the
+      // app needs to provide NEXT_PUBLIC_APP_URL or APP_URL at deploy time.
+      // NEXT_PUBLIC_APP_URL is baked in at build time via --build-arg in
+      // the Dockerfile; APP_URL can be set at runtime via
+      // `gcloud run services update --set-env-vars`.
       const baseUrl =
-        process.env.RENDER_EXTERNAL_URL || process.env.APP_URL || "";
+        process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "";
       if (baseUrl) {
         const host = baseUrl.replace(/^https?:\/\//, "");
         const endpoint = `${baseUrl}/api/error-events`;

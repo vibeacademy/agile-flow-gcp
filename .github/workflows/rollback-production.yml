@@ -3,8 +3,8 @@ name: Rollback Production
 on:
   workflow_dispatch:
     inputs:
-      deploy_id:
-        description: 'Render deploy ID to rollback to (leave empty for previous deploy)'
+      revision:
+        description: 'Cloud Run revision to rollback to (leave empty for previous ready revision)'
         required: false
         type: string
       reason:
@@ -12,90 +12,138 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   rollback:
-    name: Rollback to previous deployment
+    name: Rollback to previous Cloud Run revision
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+      SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE || 'agile-flow-app' }}
+
     steps:
       - name: Check for required secrets
-        id: check_secrets
         run: |
-          if [ -z "${{ secrets.RENDER_API_KEY }}" ] || [ -z "${{ secrets.RENDER_SERVICE_ID }}" ]; then
-            echo "RENDER_API_KEY or RENDER_SERVICE_ID not configured."
+          if [ -z "${{ secrets.GCP_PROJECT_ID }}" ]; then
+            echo "GCP_PROJECT_ID is not configured. Cannot rollback."
             exit 1
           fi
 
-      - name: Find rollback target
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        if: secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Authenticate to Google Cloud (Service Account Key fallback)
+        if: secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == '' && secrets.GCP_SA_KEY != ''
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Find rollback target revision
         id: target
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
-          INPUT_DEPLOY_ID="${{ inputs.deploy_id }}"
+          INPUT_REVISION="${{ inputs.revision }}"
 
-          if [ -n "$INPUT_DEPLOY_ID" ]; then
-            echo "deploy_id=$INPUT_DEPLOY_ID" >> "$GITHUB_OUTPUT"
-            echo "Rolling back to specified deploy: $INPUT_DEPLOY_ID"
+          if [ -n "$INPUT_REVISION" ]; then
+            TARGET="$INPUT_REVISION"
+            echo "Rolling back to specified revision: $TARGET"
           else
-            # Get the second most recent deploy (the one before current)
-            PREV_DEPLOY=$(curl -s -X GET \
-              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=2" \
-              -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H "Accept: application/json" | jq -r '.[1].deploy.id // empty')
+            # Find the revision before the current one.
+            CURRENT=$(gcloud run services describe "$SERVICE_NAME" \
+              --region="$GCP_REGION" \
+              --format='value(status.latestReadyRevisionName)')
+            echo "Current revision: $CURRENT"
 
-            if [ -z "$PREV_DEPLOY" ]; then
-              echo "No previous deployment found to rollback to."
+            # List revisions in reverse chronological order, skipping the current one.
+            TARGET=$(gcloud run revisions list \
+              --service="$SERVICE_NAME" \
+              --region="$GCP_REGION" \
+              --format='value(metadata.name)' \
+              --limit=10 \
+              --sort-by='~metadata.creationTimestamp' \
+              | grep -v "^${CURRENT}$" \
+              | head -1)
+
+            if [ -z "$TARGET" ]; then
+              echo "No previous revision found to rollback to."
               exit 1
             fi
 
-            echo "deploy_id=$PREV_DEPLOY" >> "$GITHUB_OUTPUT"
-            echo "Rolling back to previous deploy: $PREV_DEPLOY"
+            echo "Rolling back to previous revision: $TARGET"
           fi
 
-      - name: Trigger rollback
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          echo "revision=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Route traffic to rollback target
         run: |
-          DEPLOY_ID="${{ steps.target.outputs.deploy_id }}"
-          echo "Triggering rollback to deploy $DEPLOY_ID..."
-          echo "Reason: ${{ inputs.reason }}"
+          TARGET="${{ steps.target.outputs.revision }}"
+          echo "Routing 100% traffic to $TARGET..."
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}/rollback" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Accept: application/json")
+          gcloud run services update-traffic "$SERVICE_NAME" \
+            --region="$GCP_REGION" \
+            --to-revisions="${TARGET}=100" \
+            --quiet
 
-          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-          BODY=$(echo "$RESPONSE" | head -1)
+          echo "Rollback complete."
 
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "Rollback triggered successfully."
+      - name: Verify service is serving from target
+        run: |
+          TARGET="${{ steps.target.outputs.revision }}"
+
+          ACTUAL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region="$GCP_REGION" \
+            --format='value(status.traffic[?percent==`100`].revisionName)')
+
+          if [ "$ACTUAL" = "$TARGET" ]; then
+            echo "Verified: traffic is routed to $TARGET"
           else
-            echo "Rollback API returned HTTP $HTTP_CODE"
-            echo "$BODY"
-            echo ""
-            echo "Falling back to redeploy of the target commit..."
-
-            # Fallback: trigger a new deploy (Render will use the commit from that deploy)
-            curl -s -X POST \
-              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-              -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H "Accept: application/json" \
-              -H "Content-Type: application/json"
-            echo "Redeploy triggered."
+            echo "WARNING: expected $TARGET, got $ACTUAL"
+            exit 1
           fi
+
+      - name: Smoke test
+        run: |
+          URL=$(gcloud run services describe "$SERVICE_NAME" \
+            --region="$GCP_REGION" \
+            --format='value(status.url)')
+
+          echo "Smoke testing: $URL/api/health"
+
+          for ATTEMPT in $(seq 1 5); do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL/api/health" || echo "000")
+            if [ "$HTTP_STATUS" = "200" ]; then
+              echo "Rolled-back service is healthy."
+              exit 0
+            fi
+            echo "Attempt $ATTEMPT: HTTP $HTTP_STATUS, retrying in 5s..."
+            sleep 5
+          done
+
+          echo "Rolled-back service is NOT healthy. Manual intervention required."
+          exit 1
 
       - name: Log rollback event
+        if: always()
         run: |
           echo "========================================"
           echo "ROLLBACK EVENT LOG"
           echo "========================================"
-          echo "Timestamp: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-          echo "Target Deploy: ${{ steps.target.outputs.deploy_id }}"
-          echo "Reason: ${{ inputs.reason }}"
+          echo "Timestamp:    $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "Target:       ${{ steps.target.outputs.revision }}"
+          echo "Service:      ${{ env.SERVICE_NAME }}"
+          echo "Region:       ${{ env.GCP_REGION }}"
+          echo "Reason:       ${{ inputs.reason }}"
           echo "Triggered by: ${{ github.actor }}"
           echo "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "========================================"

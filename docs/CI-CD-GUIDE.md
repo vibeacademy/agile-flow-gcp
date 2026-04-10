@@ -1,7 +1,8 @@
 # CI/CD Guide
 
 This document describes all GitHub Actions workflows, their triggers,
-required secrets, and default states.
+required secrets, and default states. This fork targets **GCP Cloud Run
++ Neon**.
 
 ## Workflow Overview
 
@@ -9,14 +10,15 @@ required secrets, and default states.
 |----------|------|---------|---------------|------------------|
 | CI | `ci.yml` | Push/PR to main | Active | None |
 | Release | `release.yml` | Tag `v*` | Active | None |
-| Deploy | `deploy.yml` | Push to main | Inert | RENDER_API_KEY, RENDER_SERVICE_ID |
-| Preview Deploy | `preview-deploy.yml` | PR opened/updated | Inert | RENDER_API_KEY, RENDER_SERVICE_ID, SUPABASE_ACCESS_TOKEN*, SUPABASE_PROJECT_REF* |
-| Preview Cleanup | `preview-cleanup.yml` | PR closed | Inert | RENDER_API_KEY, RENDER_SERVICE_ID, SUPABASE_ACCESS_TOKEN*, SUPABASE_PROJECT_REF* |
+| Deploy | `deploy.yml` | Push to main | Inert | `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER` (or `GCP_SA_KEY`), `GCP_SERVICE_ACCOUNT` |
+| Preview Deploy | `preview-deploy.yml` | PR opened/updated | Inert | Same as Deploy, plus `NEON_API_KEY`, `NEON_PROJECT_ID` |
+| Preview Cleanup | `preview-cleanup.yml` | PR closed | Inert | Same as Preview Deploy |
 | Auto Review | `auto-review.yml` | PR opened/ready | Active | None |
 | Auto Fix | `auto-fix.yml` | PR opened/updated | Active | None |
-| Rollback | `rollback-production.yml` | Manual dispatch | Inert | RENDER_API_KEY, RENDER_SERVICE_ID |
+| Rollback | `rollback-production.yml` | Manual dispatch | Inert | Same as Deploy |
 
-*\* Optional — Supabase steps skip gracefully when these secrets are not configured.*
+Neon secrets are optional — if not configured, preview deploys will use
+the production database instead of a branch database.
 
 ## Active by Default
 
@@ -75,67 +77,84 @@ Until configured, they skip gracefully with no red CI.
 
 ### Deploy (`deploy.yml`)
 
-Deploys to Render production on merge to `main`.
+Deploys to Cloud Run production on merge to `main`.
 
-**To enable:**
-
-1. Go to **Settings > Secrets and variables > Actions**
-2. Add these repository secrets:
+**To enable, add these repository secrets** (Settings > Secrets and variables
+> Actions):
 
 | Secret | Where to Find |
 |--------|--------------|
-| `RENDER_API_KEY` | Render Dashboard > Account Settings > API Keys |
-| `RENDER_SERVICE_ID` | Render Dashboard > Service > Settings (starts with `srv-`) |
+| `GCP_PROJECT_ID` | GCP project ID (e.g., `my-project-12345`) |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Full WIF provider path (see `docs/PLATFORM-GUIDE.md` Step 5) |
+| `GCP_SERVICE_ACCOUNT` | Deployer SA email (e.g., `deployer@my-project.iam.gserviceaccount.com`) |
+| `GCP_SA_KEY` | **Fallback only**: service account JSON key. Use instead of the WIF trio if you need the workshop shortcut. |
 
-The workflow stores the previous deployment ID before deploying, which can
-be used for rollback.
+**Recommended repository variables** (non-secret):
 
-If a `supabase/migrations/` directory exists and `SUPABASE_DB_URL` is
-configured, database migrations run automatically after deployment.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GCP_REGION` | `us-central1` | Cloud Run + Artifact Registry region |
+| `ARTIFACT_REPO` | `agile-flow` | Artifact Registry repo name |
+| `CLOUD_RUN_SERVICE` | `agile-flow-app` | Cloud Run service name |
+| `NEXT_PUBLIC_APP_URL` | (your URL) | Baked into client bundle at build time |
 
-For preview environments, migrations are handled differently: the
-`preview-deploy.yml` workflow links to the Supabase branch database and
-runs `supabase db push` directly. This applies migrations to the isolated
-branch database rather than the production database.
+The deploy workflow builds a container image with `NEXT_PUBLIC_*` args
+passed as `--build-arg`, pushes it to Artifact Registry, then calls
+`gcloud run deploy`. Runtime secrets (e.g., `DATABASE_URL`) are mounted
+from Secret Manager at deploy time — create the secret once with
+`gcloud secrets create database-url --data-file=-`.
+
+**Cloud Run keeps every revision.** Rollback is a traffic split, not a
+redeploy. See the Rollback workflow below.
 
 ### Preview Deploy (`preview-deploy.yml`)
 
-Creates a preview environment on Render for every pull request. Comments the
-preview URL on the PR.
+Creates a preview environment for every pull request: a Cloud Run
+revision tag with zero production traffic, plus a Neon database branch.
+Comments the preview URL on the PR.
 
-**Required secrets:** `RENDER_API_KEY`, `RENDER_SERVICE_ID`
+**Required secrets:** Same as Deploy.
 
-Render must also have `previewsEnabled: true` in `render.yaml` (already
-configured in this template).
-
-**Optional Supabase secrets** (for ephemeral PR databases):
+**Neon secrets (for per-PR database branching):**
 
 | Secret | Where to Find |
 |--------|--------------|
-| `SUPABASE_ACCESS_TOKEN` | Supabase Dashboard > Account > Access Tokens |
-| `SUPABASE_PROJECT_REF` | Supabase Dashboard > Project Settings > General (Reference ID). Use the project where the GitHub integration is installed (creates branch DBs on PR) -- typically production, NOT staging. |
+| `NEON_API_KEY` | Neon Console > Settings > API Keys |
+| `NEON_PROJECT_ID` | Neon Console > Settings > General |
 
-When Supabase is configured, the workflow:
+When Neon is configured, the workflow:
 
-1. Waits for the Supabase GitHub integration to create a branch database
-2. Fetches branch credentials (`api_url`, `anon_key`, `service_role_key`)
-3. Applies migrations via `supabase db push`
-4. Injects `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY` into the
-   Render preview service
-5. Triggers a redeploy so the preview picks up the new credentials
+1. Creates a Neon branch named `pr-{N}` off `main` (via `neondatabase/create-branch-action@v5`)
+2. Builds the container image with `NEXT_PUBLIC_*` baked in
+3. Pushes the image to Artifact Registry with tag `pr-{N}-{sha}`
+4. Deploys to Cloud Run as a tagged revision (`--tag=pr-{N} --no-traffic`)
+5. Overrides `DATABASE_URL` with the Neon branch pooled URL for this revision only
+6. Runs a smoke test against `/api/health`
+7. Posts a status comment on the PR
 
-All Supabase steps are gated on `SUPABASE_ACCESS_TOKEN` — if not configured,
-the workflow skips them gracefully and deploys normally.
+Neon steps are gated on `NEON_API_KEY` — if not configured, the preview
+deploys but uses the production database URL.
+
+**Preview URL format:** `https://pr-{N}---{service}-{hash}.{region}.run.app`
 
 ### Preview Cleanup (`preview-cleanup.yml`)
 
 Cleans up preview environments when PRs are closed or merged.
 
-**Required secrets:** Same as Deploy.
+**Required secrets:** Same as Preview Deploy.
 
-When `SUPABASE_ACCESS_TOKEN` is configured, also deletes the Supabase branch
-database using `supabase branches delete`. Continues on error if the branch
-doesn't exist (e.g., the GitHub integration already cleaned it up).
+The workflow:
+
+1. Deletes the Neon branch (`neondatabase/delete-branch-action@v3`)
+2. Removes the Cloud Run revision tag (`gcloud run services update-traffic
+   --remove-tags=pr-{N}`)
+
+The underlying Cloud Run revision is **not** deleted — inactive revisions
+cost nothing on scale-to-zero and are useful for forensics. Cloud Run
+garbage-collects revisions automatically after 1000 accumulate per service.
+
+Both steps are idempotent and use `continue-on-error: true` so a missing
+branch or tag doesn't fail the workflow.
 
 ### Rollback Production (`rollback-production.yml`)
 
@@ -144,10 +163,26 @@ Emergency rollback triggered manually via GitHub Actions UI.
 **To trigger:**
 
 1. Go to **Actions > Rollback Production > Run workflow**
-2. Optionally provide a specific deploy ID (defaults to previous deploy)
+2. Optionally provide a specific revision name (defaults to previous ready revision)
 3. Provide the reason for rollback (required)
 
 **Requires the same secrets as Deploy.**
+
+The workflow uses `gcloud run services update-traffic` to route 100% of
+traffic to the target revision, then verifies with a smoke test. It does
+NOT trigger a new build — the previous revision is already in Cloud Run's
+revision history.
+
+## Database Migrations
+
+Migrations run as part of the Neon branch creation flow. If you use
+Neon's migration runner or your own (e.g., `node-pg-migrate`, Prisma
+Migrate, Drizzle Kit), run them after the branch is created but before
+deploying.
+
+For production migrations, run them from a one-off job before the
+`gcloud run deploy` step in `deploy.yml`, or use Neon's point-in-time
+restore if something goes wrong.
 
 ## Troubleshooting
 
@@ -172,13 +207,21 @@ This is expected behavior. The workflow checked for secrets, found none
 configured, and skipped gracefully. Add the required secrets when you are
 ready to enable the workflow.
 
-### Preview URL Not Available
+### Deploy Fails with `PERMISSION_DENIED: actAs`
 
-If the preview deploy workflow runs but the URL is not ready:
+The deployer service account is missing the `roles/iam.serviceAccountUser`
+role. See pattern #14 in `docs/PATTERN-LIBRARY.md`.
 
-1. Check the Render dashboard for the preview service status
-2. Preview services follow the naming pattern `{service-name}-pr-{number}`
-3. First deploys take longer as Render provisions the service
+### Preview URL Returns 404 / Service Unavailable
+
+Most likely `HOSTNAME=0.0.0.0` is missing from the Dockerfile. See pattern
+#1 in `docs/PATTERN-LIBRARY.md`. Cloud Run cannot reach a container bound
+to localhost.
+
+### Cold Start on First Preview Request
+
+Expected. Cloud Run + Neon both scale to zero. First request after idle
+takes 3-7 seconds total. Retry; subsequent requests are fast.
 
 ### Coverage Threshold Failures
 

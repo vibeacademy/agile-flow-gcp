@@ -14,7 +14,9 @@ issues labeled `bug:auto` automatically.
 
 - `GITHUB_TOKEN` environment variable set (for creating issues)
 - `GITHUB_REPOSITORY` environment variable set (e.g., `your-org/agile-flow`)
-- `RENDER_EXTERNAL_URL` is provided automatically by Render
+- `NEXT_PUBLIC_APP_URL` (baked at build time) or `APP_URL` (set at deploy
+  time via `gcloud run services update`) must point at the public service
+  URL so the self-DSN transport can POST events back to `/api/error-events`
 
 **How it works:**
 
@@ -27,7 +29,7 @@ issues labeled `bug:auto` automatically.
 **Verify it works:**
 
 ```bash
-curl https://your-app.onrender.com/error
+curl https://your-app-xyz.us-central1.run.app/error
 # Wait 10-30 seconds
 gh issue list --label bug:auto
 ```
@@ -72,6 +74,6 @@ This is not needed for the zero-config flow, which creates issues directly.
 |----------|----------|---------|
 | `GITHUB_TOKEN` | Yes (zero-config) | API token for creating GitHub issues |
 | `GITHUB_REPOSITORY` | Yes (zero-config) | Target repo (e.g., `org/agile-flow`) |
-| `RENDER_EXTERNAL_URL` | Auto (Render) | App's public URL for self-DSN construction |
+| `NEXT_PUBLIC_APP_URL` | Yes (zero-config) | App's public URL for self-DSN construction (baked at build time) |
 | `SENTRY_DSN` | No | External Sentry/GlitchTip DSN (overrides self-DSN) |
-| `APP_URL` | No | Fallback app URL if not on Render |
+| `APP_URL` | No | Runtime override for the app URL (set via `gcloud run services update`) |
