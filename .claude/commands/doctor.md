@@ -42,6 +42,8 @@ configuration. Surfaces every issue that could block a workshop participant.
       - `GCP_SA_KEY` — OK if missing when WIF is configured (workshop fallback only)
       - `NEON_API_KEY` — WARN if missing (required for PR preview branching)
       - `NEON_PROJECT_ID` — WARN if missing (required for PR preview branching)
+      - `PRODUCTION_DATABASE_URL` — WARN if missing (required to run
+        Alembic migrations against the prod Neon branch during deploy)
 
    d. **Local gcloud auth** — run:
 
@@ -63,6 +65,20 @@ configuration. Surfaces every issue that could block a workshop participant.
       - PASS if a project is set
       - WARN if unset (user needs `gcloud config set project ${GCP_PROJECT_ID}`)
       - SKIP if `gcloud` is not installed
+
+   f. **Local uv and Python** — check for `uv` in `$PATH` and
+      `pyproject.toml` at repo root:
+
+      ```text
+      which uv && uv --version
+      test -f pyproject.toml && echo "pyproject.toml present"
+      ```
+
+      - PASS if `uv` is installed AND `pyproject.toml` exists
+      - WARN if `uv` is missing (needed for local dev; CI installs it
+        automatically)
+      - WARN if `pyproject.toml` is missing (this is a Python project —
+        something is wrong)
 
    c. **GitHub Project board** — run:
 
@@ -90,6 +106,7 @@ configuration. Surfaces every issue that could block a workshop participant.
    | Project board | PASS/WARN | ... |
    | Local gcloud auth | PASS/WARN/SKIP | ... |
    | Local gcloud project | PASS/WARN/SKIP | ... |
+   | Local uv + pyproject | PASS/WARN | ... |
 
    ### Overall
    Ready for workshop: **YES** / **NO**

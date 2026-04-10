@@ -219,72 +219,101 @@ there is no linked issue:
 - Create PRs without moving ticket to "In Review" (when a ticket is linked)
 - Work on multiple tickets simultaneously (one at a time)
 
-## Stack Guardrails (GCP Cloud Run + Neon)
+## Stack Guardrails (GCP Cloud Run + Neon + FastAPI)
 
-Before implementing any of the following, read `docs/PATTERN-LIBRARY.md` for
-known pitfalls and working code samples:
-- Cloud Run deployment (Dockerfile, env vars, revisions, tagged previews)
+Before implementing any of the following, read `docs/PATTERN-LIBRARY.md`
+for known pitfalls and working code samples:
+
+- Cloud Run deployment (Dockerfile, uvicorn bind address, env vars,
+  revisions, tagged previews)
 - Neon branching (PR branches, pooled connections, cold starts)
-- GitHub Actions workflows (Workload Identity Federation, reusable workflows)
-- next.config.ts changes (standalone output, NEXT_PUBLIC_* baking)
+- FastAPI + SQLModel (connection pooling, mypy ergonomics, Alembic
+  migrations)
+- HTMX (fragment responses, hx-target/hx-swap contracts)
+- GitHub Actions workflows (Workload Identity Federation, reusable
+  workflows)
 
-The most dangerous silent failures on this stack are listed below. All return
-success signals while doing the wrong thing.
+The most dangerous silent failures on this stack are listed below. All
+return success signals while doing the wrong thing.
 
-1. **Cloud Run container bound to localhost.** Next.js binds to `localhost`
-   by default. Cloud Run routes traffic via a proxy that cannot reach
-   localhost, and the container fails health checks with "starting but not
-   ready" — no useful error. The Dockerfile MUST set `HOSTNAME=0.0.0.0` and
-   `PORT=8080`. This works correctly in local `docker run` if you publish
-   the port, so you only notice it on deploy.
+1. **Uvicorn bound to localhost.** Uvicorn binds to `127.0.0.1` by
+   default. Cloud Run routes traffic via a proxy that cannot reach
+   localhost, and the container fails health checks with "starting but
+   not ready" — no useful error. The Dockerfile MUST pass
+   `--host 0.0.0.0 --port 8080` to uvicorn. This works correctly in
+   local `docker run` if you publish the port, so you only notice it
+   on deploy.
 
-2. **`NEXT_PUBLIC_*` vars baked at build time.** Any env var prefixed with
-   `NEXT_PUBLIC_` is inlined into the client JavaScript bundle by `next build`.
-   Setting it at Cloud Run deploy time (`--set-env-vars`) has NO effect on
-   the client bundle — the browser will see an empty string. These vars must
-   be passed as `--build-arg` to `docker build`. Server-only vars work
-   normally at runtime. No error is thrown; the value is just silently empty.
+2. **Cloud Run env var updates create a new revision.** Updating env
+   vars via `gcloud run services update --update-env-vars=...` creates
+   a new revision and routes traffic to it. Updating via the Console
+   without deploying stages the change but never applies it. Always
+   verify with `gcloud run services describe` after an update.
 
-3. **Cloud Run env var updates create a new revision.** Updating env vars
-   via `gcloud run services update --update-env-vars=...` creates a new
-   revision and routes traffic to it. Updating via the Console without
-   deploying stages the change but never applies it. Always verify with
-   `gcloud run services describe` after an update.
+3. **Cloud Run sits behind a proxy.** Server-side redirect code must
+   read `X-Forwarded-Host` and `X-Forwarded-Proto` headers to construct
+   the external origin. Using `request.url.hostname` or
+   `request.base_url` returns Cloud Run's internal origin, silently
+   breaking redirects. This works correctly in local dev, so you won't
+   catch it until deployment. Alternative: run uvicorn with
+   `--proxy-headers --forwarded-allow-ips="*"`.
 
-4. **Cloud Run sits behind a proxy.** Server-side redirect code must read
-   `X-Forwarded-Host` and `X-Forwarded-Proto` headers to construct the
-   external origin. Using `request.url` or `new URL(path, request.url)`
-   returns Cloud Run's internal origin, silently breaking redirects. This
-   works correctly in local dev, so you won't catch it until deployment.
+4. **Secret Manager env-var mount captures value at deploy time.**
+   Cloud Run lets you mount secrets two ways: as env vars
+   (`--set-secrets=FOO=foo:latest`) or as files. Env var mounts capture
+   the secret value at deploy time. Rotating the underlying secret does
+   NOT update the running revision — you have to redeploy. For secrets
+   that rotate, mount as a file instead.
 
-5. **Secret Manager env-var mount captures value at deploy time.** Cloud Run
-   lets you mount secrets two ways: as env vars (`--set-secrets=FOO=foo:latest`)
-   or as files. Env var mounts capture the value of the secret version at
-   deploy time. Rotating the underlying secret does NOT update the running
-   revision — you have to redeploy. For secrets that rotate, mount as a file
-   instead (Cloud Run will pick up new values without a redeploy).
+5. **Neon cold starts break the first request after idle.** Neon
+   compute scales to zero after ~5 minutes of inactivity. The first
+   query after suspend takes 500ms-2s while the compute instance wakes
+   up. Always use Neon's pooled connection string (`db_url_pooled`)
+   from Cloud Run. Set `pool_pre_ping=True` on the SQLAlchemy engine so
+   dead connections are detected and replaced on checkout.
 
-6. **Reusable workflows need `workflow_call` trigger.** If a GitHub Actions
-   workflow is called by another workflow via `uses: ./.github/workflows/ci.yml`,
-   the called workflow MUST have `workflow_call:` in its `on:` block. Without
-   it, GitHub silently shows "0 jobs" with a vague error. This can go undetected
-   for weeks.
+6. **Migrations must run BEFORE the new revision takes traffic.** If
+   you deploy a new container that expects a new column before running
+   Alembic, every request hits `UndefinedColumnError` until you run the
+   migration. The workflows (`deploy.yml`, `preview-deploy.yml`) run
+   `uv run alembic upgrade head` before `gcloud run deploy`. Never
+   reverse the order. For destructive changes (dropping columns,
+   renaming tables), use a two-step deploy.
 
-7. **Neon cold starts break the first request after idle.** Neon compute
-   scales to zero after ~5 minutes of inactivity. The first query after
-   suspend takes 500ms-2s while the compute instance wakes up. From Cloud Run
-   this looks like "my app is slow the first time," and if the app uses a
-   short connection timeout, queries fail outright. Use Neon's pooled
-   connection string (`db_url_pooled`) from Cloud Run — it handles wake-up
-   and connection reuse. Never use the direct connection string from a
-   serverless app.
+7. **Use the pooled Neon URL from Cloud Run, direct URL from Alembic.**
+   Neon gives you two connection strings. Cloud Run runtime traffic
+   MUST use the pooled URL to avoid connection exhaustion (every Cloud
+   Run instance opens its own pool). Alembic migrations MUST use the
+   direct URL because PgBouncer in transaction-pooling mode doesn't
+   support session-level operations Alembic needs. Both URLs are
+   exposed by `neondatabase/create-branch-action` as
+   `db_url_pooled` and `db_url`.
 
-8. **Artifact Registry, not Container Registry.** Older GCP docs reference
-   `gcr.io/PROJECT/image` — Container Registry is deprecated. New Cloud Run
-   deploys must use Artifact Registry:
-   `REGION-docker.pkg.dev/PROJECT/REPO/image`. An image pushed to `gcr.io`
-   will work for a while, then silently stop pulling once the deprecation
-   window closes. Always use the Artifact Registry path.
+8. **SQLModel + mypy: use column strings for `order_by`.** SQLModel
+   annotates columns as their Python types (e.g., `created_at: datetime`),
+   so mypy doesn't know they're SQLAlchemy columns. Calling `.desc()`
+   on them fails type checking. Fix: `select(Todo).order_by(desc("created_at"))`
+   using a string column name. See pattern #16 in `docs/PATTERN-LIBRARY.md`.
+
+9. **HTMX routes must return FRAGMENTS, not full pages.** If a handler
+   returns a full HTML document to an HTMX request, HTMX inserts the
+   entire document into the target element. Route handlers for HTMX
+   endpoints should render partial templates from `templates/_fragments/`
+   and never include the base layout. See patterns #18 and #19 in
+   `docs/PATTERN-LIBRARY.md`.
+
+10. **Artifact Registry, not Container Registry.** Older GCP docs
+    reference `gcr.io/PROJECT/image` — Container Registry is deprecated.
+    New Cloud Run deploys must use Artifact Registry:
+    `REGION-docker.pkg.dev/PROJECT/REPO/image`. An image pushed to
+    `gcr.io` will work for a while, then silently stop pulling once the
+    deprecation window closes.
+
+11. **Reusable workflows need `workflow_call` trigger.** If a GitHub
+    Actions workflow is called by another via
+    `uses: ./.github/workflows/ci.yml`, the called workflow MUST have
+    `workflow_call:` in its `on:` block. Without it, GitHub silently
+    shows "0 jobs" with a vague error.
 
 ## Decision-Making Framework
 
@@ -370,32 +399,68 @@ See `docs/MEMORY-ARCHITECTURE.md` for full naming conventions and the
 
 ## Framework-Specific Testing Patterns
 
-### React / Next.js with Vitest
+### FastAPI with pytest and httpx
 
-When working on a React or Next.js project that uses Vitest and React
-Testing Library, every test file that renders components MUST call
-`cleanup()` after each test. This is typically handled via a setup file:
+For HTTP-level tests, use `fastapi.testclient.TestClient` (sync) or
+`httpx.AsyncClient` (async). Override the `get_session` dependency so
+tests use an in-memory SQLite database instead of the real Neon DB:
 
-```typescript
-// vitest.setup.ts
-import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+```python
+# tests/conftest.py
+from collections.abc import Generator
 
-afterEach(() => {
-  cleanup();
-});
+import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel.pool import StaticPool
+
+from app.db import get_session
+from app.main import app
+
+
+@pytest.fixture(name="session")
+def session_fixture() -> Generator[Session, None, None]:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    with Session(engine) as session:
+        yield session
+
+
+@pytest.fixture(name="client")
+def client_fixture(session: Session) -> Generator[TestClient, None, None]:
+    def get_session_override() -> Generator[Session, None, None]:
+        yield session
+
+    app.dependency_overrides[get_session] = get_session_override
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
 ```
 
-If a `vitest.setup.ts` file exists and includes this cleanup, you do NOT
-need to add `cleanup()` in individual test files. If no setup file exists,
-add cleanup directly:
+This gives each test a fresh in-memory database, avoids hitting Neon in
+CI, and keeps tests fast (~10ms per test).
 
-```typescript
-import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, it, expect } from 'vitest';
+### Testing HTMX Fragment Routes
 
-afterEach(() => { cleanup(); });
+HTMX routes return HTML fragments (not JSON). Test them by asserting on
+substrings of the response body:
+
+```python
+def test_create_todo_returns_updated_list_fragment(client, session):
+    response = client.post("/todos", data={"title": "buy milk"})
+    assert response.status_code == 200
+    assert "buy milk" in response.text
+    # Fragment response should NOT include the full page chrome
+    assert "<html" not in response.text
+    assert 'id="todo-list"' in response.text
 ```
+
+The "no `<html`" assertion catches the common mistake of accidentally
+returning a full page template from an HTMX endpoint.
 
 ## Non-Interactive Scaffolding
 
@@ -404,28 +469,12 @@ use non-interactive flags. Interactive prompts will hang the agent.
 
 | Tool | Non-Interactive Flag |
 |------|---------------------|
-| `create-next-app` | `--yes` or explicit flags (`--ts --eslint --app`) |
-| `npm init` | `-y` |
-| `create-vite` | Pass template via `--template react-ts` |
-| `npx create-react-app` | Non-interactive by default |
-| `go mod init` | Non-interactive by default |
 | `uv init` | Non-interactive by default |
-
-## ESLint Ignore Patterns
-
-When working in a repository that may have artifacts from a previous stack
-(e.g., Python `.venv/` directory), ensure the ESLint config ignores them:
-
-```javascript
-// eslint.config.mjs
-export default [
-  { ignores: ['.venv/', 'node_modules/', '.next/', 'dist/'] },
-  // ... rest of config
-];
-```
-
-Always include `.venv/` in ESLint ignores for any Node.js project created
-from this template, since the template starts with a Python scaffolding.
+| `uv add` | Non-interactive by default |
+| `uv sync` | Non-interactive by default |
+| `alembic revision --autogenerate` | Use `-m "message"` to skip the editor |
+| `gh` commands | Use `--yes` for destructive commands |
+| `go mod init` | Non-interactive by default |
 
 ## Output Format
 

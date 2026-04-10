@@ -70,7 +70,7 @@ Repository variables (non-sensitive):
 | `GCP_REGION` | `us-central1` | Cloud Run + Artifact Registry region |
 | `ARTIFACT_REPO` | `agile-flow` | Artifact Registry repo name |
 | `CLOUD_RUN_SERVICE` | `agile-flow-app` | Cloud Run service name |
-| `NEXT_PUBLIC_APP_URL` | (none) | Baked into client bundle at build time |
+| `APP_URL` | (none) | Runtime env var for self-referential URL construction |
 | `NEON_DB_USER` | `neondb_owner` | Neon database role |
 
 ## Core Responsibilities
@@ -81,24 +81,28 @@ Production deploys happen automatically via `.github/workflows/deploy.yml`
 on push to `main`. The flow is:
 
 1. Authenticate to GCP via Workload Identity Federation (or SA key fallback)
-2. Build the container image with `NEXT_PUBLIC_*` build args baked in
-3. Push to Artifact Registry tagged with the commit SHA
-4. `gcloud run deploy` updates the service with the new image
-5. Runtime secrets (e.g., `DATABASE_URL`) are mounted from Secret Manager
+2. Run `uv run alembic upgrade head` against the production Neon database
+3. Build the container image (FastAPI reads env vars at runtime, so no
+   `--build-arg` gymnastics)
+4. Push to Artifact Registry tagged with the commit SHA
+5. `gcloud run deploy` updates the service with the new image
+6. Runtime secrets (e.g., `DATABASE_URL`) are mounted from Secret Manager
 
 **Manual production deploy (if CI is broken):**
 
 ```bash
+# Run migrations first, with the direct (not pooled) Neon URL
+export DATABASE_URL="postgresql://.../neondb"  # NOT the pooler endpoint
+uv sync --frozen
+uv run alembic upgrade head
+
+# Build and push
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/${SERVICE}:$(git rev-parse HEAD)"
-
-docker build \
-  --build-arg NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
-  -t "$IMAGE" \
-  .
-
+docker build -t "$IMAGE" .
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 docker push "$IMAGE"
 
+# Deploy
 gcloud run deploy "$SERVICE" \
   --image="$IMAGE" \
   --region="$REGION" \
@@ -108,17 +112,22 @@ gcloud run deploy "$SERVICE" \
   --min-instances=0 \
   --max-instances=10 \
   --allow-unauthenticated \
+  --set-env-vars="ENVIRONMENT=production" \
   --set-secrets=DATABASE_URL=database-url:latest
 ```
 
 **Critical reminders (see `docs/PATTERN-LIBRARY.md` for full detail):**
 
-- `HOSTNAME=0.0.0.0` and `PORT=8080` MUST be set in the container. Next.js
-  otherwise binds to localhost and health checks fail silently.
-- `NEXT_PUBLIC_*` vars must be passed to `docker build --build-arg`, not
-  `gcloud run deploy --set-env-vars`. They're baked into the client bundle.
+- The container MUST run uvicorn with `--host 0.0.0.0 --port 8080`.
+  Without this, Cloud Run cannot reach the container and health checks
+  fail silently.
+- All env vars are read at runtime — no build-time baking. Use
+  `--set-env-vars` for plain config, `--set-secrets` for secrets.
 - `--set-secrets=FOO=secret:latest` captures the secret value at deploy
   time. Rotation requires a redeploy unless you mount as a file.
+- Run `alembic upgrade head` BEFORE deploying a new revision. Deploying
+  first and migrating second leaves the service broken until the
+  migration finishes.
 
 ### 2. Preview Environments (PR Previews)
 
@@ -236,8 +245,14 @@ Periodically audit for:
 - Migration status
 
 **Docker:**
-- `docker build --build-arg` — critical for NEXT_PUBLIC_* vars
+- `docker build` — no `--build-arg` juggling needed; FastAPI reads env
+  vars at runtime
 - `docker push` to Artifact Registry
+
+**uv (Python package manager):**
+- `uv sync --frozen` — install locked dependencies in CI and containers
+- `uv run alembic upgrade head` — apply migrations before deploy
+- `uv run pytest` / `uv run ruff check .` — local dev commands
 
 **GitHub CLI (`gh`):**
 - List PRs and their status for cleanup correlation
