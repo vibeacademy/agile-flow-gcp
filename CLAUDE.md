@@ -147,21 +147,28 @@ TEMPLATE: Fill in project-specific details below when using this template.
 - **Project Name**: [Your project name]
 - **Repository**: [GitHub repo URL]
 - **Project Board**: [GitHub project board URL]
-- **Tech Stack**: Next.js 15 / React 19 / TypeScript on Node 20
+- **Tech Stack**: FastAPI + Jinja2 + HTMX on Python 3.12
+- **Database layer**: SQLModel + Alembic
 - **Platform**: Google Cloud Platform (Cloud Run)
 - **Database**: Neon (serverless Postgres with per-PR branching)
 - **Container Registry**: Artifact Registry
 - **Secrets**: Google Secret Manager
+- **Package manager**: uv
 - **Organization**: [GitHub org name]
 
 ### Build & Test Commands
 
 ```bash
-npm run dev          # Dev server (Next.js on port 3000)
-npm run lint         # ESLint
-npm run typecheck    # tsc --noEmit
-npm test             # Vitest
-npm run build        # Production build (standalone output)
+uv sync --extra dev                              # Install dependencies
+uv run uvicorn app.main:app --reload --port 8080 # Dev server
+uv run ruff check .                              # Lint
+uv run ruff format .                             # Format
+uv run mypy app/                                 # Type check
+uv run pytest                                    # Tests
+uv run pytest --cov=app --cov-report=term-missing # Tests with coverage
+uv run alembic upgrade head                      # Apply migrations
+uv run alembic revision --autogenerate -m "msg"  # Create a new migration
+docker build -t agile-flow-app .                 # Local container build
 ```
 
 ### Definition of Ready

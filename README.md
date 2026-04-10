@@ -58,19 +58,20 @@ The agents hand off work to each other through a structured workflow, with human
 
 Agile Flow GCP is a **workflow template**, not a full application. You provide:
 
-- **Your application code** — the template ships a minimal Next.js starter; you replace it with your own
+- **Your application code** — the template ships a minimal FastAPI + HTMX todo app as a reference; you delete it and build your own
 - **Your GCP project** — you create and fund the GCP project; see `docs/PLATFORM-GUIDE.md` for setup
 - **Your Neon account** — you create the Neon project and paste the credentials into GitHub secrets
 - **Your domain logic** — agents help you build, but you define what to build
 
 ### What This DOES Include
 
-- **A working Dockerfile** for Next.js standalone output on Cloud Run
+- **A working FastAPI + Jinja2 + HTMX starter** — reference todo app with database persistence, Alembic migrations, and HTMX-driven interactivity
+- **A minimal Dockerfile** (~20 lines, single-stage, Python 3.12 + uv) targeting Cloud Run
 - **GitHub Actions workflows** for production deploys and ephemeral PR previews
-- **Neon branching integration** — every PR gets its own database branch
+- **Neon branching integration** — every PR gets its own database branch, migrated automatically before deploy
 - **Cloud Run revision tagging** — every PR gets a stable preview URL with zero production traffic
 - **Workload Identity Federation support** (with SA key fallback for workshops)
-- **Stack-specific agent guardrails** — the `github-ticket-worker` agent knows about Cloud Run gotchas, Neon cold starts, and `NEXT_PUBLIC_*` build-time baking
+- **Stack-specific agent guardrails** — the `github-ticket-worker` agent knows about Cloud Run, Neon, FastAPI, and SQLModel gotchas
 
 ## Prerequisites
 
