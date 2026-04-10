@@ -1,11 +1,16 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
-// WARNING: Do not add output: "standalone" — Render's static file copy step
-// is unreliable and causes CSS/JS/font 404s. Use `npm start` (next start)
-// which handles static file serving natively.
-// See docs/PATTERN-LIBRARY.md #9 for details.
-const nextConfig: NextConfig = {};
+// Cloud Run target: use standalone output. This produces .next/standalone/
+// with a self-contained server + pruned node_modules, which the Dockerfile
+// copies into a minimal runtime image.
+//
+// If you deploy this template to Render or any other platform, verify that
+// static file serving works with standalone before shipping — some platforms
+// mishandle the static asset copy step.
+const nextConfig: NextConfig = {
+  output: "standalone",
+};
 
 export default withSentryConfig(nextConfig, {
   // Disable source map uploads — no auth token in zero-config mode
