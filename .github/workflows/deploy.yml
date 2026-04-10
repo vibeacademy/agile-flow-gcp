@@ -4,23 +4,38 @@ on:
   push:
     branches: [main]
 
+# Required for Workload Identity Federation (keyless auth to GCP).
+# If you are using a service account key instead (workshop shortcut),
+# you can remove the id-token permission but keep contents: read.
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
-    name: Deploy to Render
+    name: Deploy to Cloud Run
     runs-on: ubuntu-latest
-    if: github.repository != 'vibeacademy/agile-flow'
-    permissions:
-      contents: read
+    # Don't run on the upstream template repo itself — only on forks that
+    # have configured their own GCP project.
+    if: github.repository != 'vibeacademy/agile-flow-gcp'
+
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+      ARTIFACT_REPO: ${{ vars.ARTIFACT_REPO || 'agile-flow' }}
+      SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE || 'agile-flow-app' }}
+
     steps:
       - name: Check for required secrets
         id: check_secrets
         run: |
-          if [ -z "${{ secrets.RENDER_API_KEY }}" ]; then
+          if [ -z "${{ secrets.GCP_PROJECT_ID }}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "RENDER_API_KEY not configured — skipping deployment."
-          elif [ -z "${{ secrets.RENDER_SERVICE_ID }}" ]; then
+            echo "GCP_PROJECT_ID not configured — skipping deployment."
+            echo "See docs/PLATFORM-GUIDE.md for setup instructions."
+          elif [ -z "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ] && [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "RENDER_SERVICE_ID not configured — skipping deployment."
+            echo "Neither GCP_WORKLOAD_IDENTITY_PROVIDER nor GCP_SA_KEY configured — skipping."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -29,89 +44,76 @@ jobs:
         if: steps.check_secrets.outputs.skip != 'true'
         uses: actions/checkout@v4
 
-      - name: Store previous deployment info
+      # Authenticate to GCP. Prefers Workload Identity Federation (keyless).
+      # Falls back to a service account JSON key if GCP_SA_KEY is set —
+      # this is the workshop shortcut and is NOT recommended for production.
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        if: steps.check_secrets.outputs.skip != 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Authenticate to Google Cloud (Service Account Key fallback)
+        if: steps.check_secrets.outputs.skip != 'true' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == '' && secrets.GCP_SA_KEY != ''
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
         if: steps.check_secrets.outputs.skip != 'true'
-        id: previous_deploy
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          PREV_DEPLOY=$(curl -s -X GET \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys?limit=1" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Accept: application/json" | jq -r '.[0].deploy.id // "none"')
-          echo "previous_deploy_id=$PREV_DEPLOY" >> "$GITHUB_OUTPUT"
-          echo "Previous deployment: $PREV_DEPLOY"
+        uses: google-github-actions/setup-gcloud@v2
 
-      - name: Trigger deployment
+      - name: Configure Docker for Artifact Registry
         if: steps.check_secrets.outputs.skip != 'true'
-        id: deploy
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-        run: |
-          DEPLOY_RESPONSE=$(curl -s -X POST \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Accept: application/json" \
-            -H "Content-Type: application/json")
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
-          DEPLOY_ID=$(echo "$DEPLOY_RESPONSE" | jq -r '.id // empty')
-
-          if [ -z "$DEPLOY_ID" ]; then
-            echo "Failed to trigger deployment"
-            echo "$DEPLOY_RESPONSE"
-            exit 1
-          fi
-
-          echo "deploy_id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
-          echo "Triggered deployment: $DEPLOY_ID"
-
-      - name: Wait for deployment
+      - name: Build and push container
         if: steps.check_secrets.outputs.skip != 'true'
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+        id: build
         run: |
-          DEPLOY_ID="${{ steps.deploy.outputs.deploy_id }}"
-          MAX_ATTEMPTS=60
-          ATTEMPT=0
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
 
-          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            ATTEMPT=$((ATTEMPT + 1))
+          # NEXT_PUBLIC_* vars must be passed as --build-arg (baked into the
+          # client bundle at build time). Add more --build-arg lines as needed.
+          docker build \
+            --build-arg NEXT_PUBLIC_APP_URL="${{ vars.NEXT_PUBLIC_APP_URL }}" \
+            -t "$IMAGE" \
+            .
 
-            STATUS=$(curl -s -X GET \
-              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
-              -H "Authorization: Bearer ${RENDER_API_KEY}" \
-              -H "Accept: application/json" | jq -r '.status // "unknown"')
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
-            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS: status=$STATUS"
+      - name: Deploy to Cloud Run
+        if: steps.check_secrets.outputs.skip != 'true'
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.GCP_REGION }}
+          image: ${{ steps.build.outputs.image }}
+          # Runtime env vars (NOT NEXT_PUBLIC_*, those were baked in at build time).
+          # Map secrets to env vars via `--set-secrets` below for sensitive values.
+          flags: |
+            --port=8080
+            --memory=512Mi
+            --cpu=1
+            --min-instances=0
+            --max-instances=10
+            --allow-unauthenticated
+          env_vars: |
+            NODE_ENV=production
+          # Mount secrets from Secret Manager as env vars. Each secret must
+          # exist in Secret Manager in the same project. DATABASE_URL points
+          # at the production Neon branch.
+          secrets: |
+            DATABASE_URL=database-url:latest
 
-            case "$STATUS" in
-              live)
-                echo "Deployment is live!"
-                exit 0
-                ;;
-              build_failed|update_failed|canceled)
-                echo "Deployment failed: $STATUS"
-                exit 1
-                ;;
-            esac
-
-            sleep 10
-          done
-
-          echo "Deployment timed out"
-          exit 1
-
-      - name: Run Supabase migrations
-        if: ${{ steps.check_secrets.outputs.skip != 'true' && hashFiles('supabase/migrations/*.sql') != '' }}
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      - name: Show deployed URL
+        if: steps.check_secrets.outputs.skip != 'true'
         run: |
-          if [ -z "$SUPABASE_DB_URL" ]; then
-            echo "SUPABASE_DB_URL not configured — skipping migrations."
-            exit 0
-          fi
-          echo "Running Supabase migrations..."
-          npx supabase db push --db-url "$SUPABASE_DB_URL"
+          URL=$(gcloud run services describe "${{ env.SERVICE_NAME }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)')
+          echo "Deployed to: $URL"
+          echo "## Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"

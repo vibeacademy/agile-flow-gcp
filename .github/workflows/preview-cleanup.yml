@@ -4,34 +4,82 @@ on:
   pull_request:
     types: [closed]
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   cleanup:
     name: Cleanup Preview Resources
-    if: github.repository != 'vibeacademy/agile-flow'
+    if: github.repository != 'vibeacademy/agile-flow-gcp'
     runs-on: ubuntu-latest
-    steps:
-      - name: Setup Supabase CLI
-        if: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' }}
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
 
-      - name: Delete Supabase branch
-        if: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_REF }}
-        # Don't fail the workflow if branch doesn't exist
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+      SERVICE_NAME: ${{ vars.CLOUD_RUN_SERVICE || 'agile-flow-app' }}
+      PR_NUMBER: ${{ github.event.number }}
+
+    steps:
+      # ── Neon: delete the PR branch database ───────────────────────────
+
+      - name: Delete Neon branch
+        if: secrets.NEON_API_KEY != ''
+        uses: neondatabase/delete-branch-action@v3
+        continue-on-error: true
+        with:
+          project_id: ${{ secrets.NEON_PROJECT_ID }}
+          branch: pr-${{ env.PR_NUMBER }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+
+      # ── GCP: remove the Cloud Run revision tag ────────────────────────
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        if: secrets.GCP_PROJECT_ID != '' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Authenticate to Google Cloud (Service Account Key fallback)
+        if: secrets.GCP_PROJECT_ID != '' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == '' && secrets.GCP_SA_KEY != ''
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        if: secrets.GCP_PROJECT_ID != ''
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Removing a revision tag stops routing traffic to the preview
+      # revision. The revision itself stays in the revision history but
+      # receives no traffic and incurs no compute cost on scale-to-zero.
+      #
+      # We don't delete the underlying revision because Cloud Run charges
+      # nothing for inactive revisions and keeping them aids forensics.
+      - name: Remove Cloud Run revision tag
+        if: secrets.GCP_PROJECT_ID != ''
         continue-on-error: true
         run: |
-          BRANCH_NAME="${{ github.head_ref }}"
-          echo "Attempting to delete Supabase branch: $BRANCH_NAME"
+          TAG="pr-${{ env.PR_NUMBER }}"
+          echo "Removing revision tag: $TAG"
 
-          if supabase --experimental branches delete "$BRANCH_NAME" --yes 2>/dev/null; then
-            echo "Successfully deleted Supabase branch: $BRANCH_NAME"
-          else
-            echo "No Supabase branch found to delete (branch may not exist or GitHub integration handles cleanup)"
+          # Check the tag exists before attempting removal (idempotent)
+          EXISTING=$(gcloud run services describe "${{ env.SERVICE_NAME }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format="value(status.traffic[?tag='$TAG'].tag)" 2>/dev/null || echo "")
+
+          if [ -z "$EXISTING" ]; then
+            echo "Tag $TAG not found on ${{ env.SERVICE_NAME }} — nothing to clean up."
+            exit 0
           fi
+
+          gcloud run services update-traffic "${{ env.SERVICE_NAME }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --remove-tags="$TAG" \
+            --quiet
+
+          echo "Removed tag $TAG"
 
       - name: Log cleanup
         run: |
@@ -39,10 +87,11 @@ jobs:
           echo "  Preview Cleanup"
           echo "========================================"
           echo ""
-          echo "PR: #${{ github.event.number }}"
-          echo "Branch: ${{ github.head_ref }}"
-          echo "Merged: ${{ github.event.pull_request.merged }}"
+          echo "PR:        #${{ env.PR_NUMBER }}"
+          echo "Branch:    ${{ github.head_ref }}"
+          echo "Merged:    ${{ github.event.pull_request.merged }}"
           echo ""
-          echo "Render preview environments are cleaned up"
-          echo "automatically when the PR is closed."
+          echo "Resources removed (if present):"
+          echo "  - Neon branch:            pr-${{ env.PR_NUMBER }}"
+          echo "  - Cloud Run revision tag: pr-${{ env.PR_NUMBER }}"
           echo "========================================"
