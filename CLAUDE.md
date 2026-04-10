@@ -147,8 +147,11 @@ TEMPLATE: Fill in project-specific details below when using this template.
 - **Project Name**: [Your project name]
 - **Repository**: [GitHub repo URL]
 - **Project Board**: [GitHub project board URL]
-- **Tech Stack**: [Languages, frameworks, tools]
-- **Database**: [Supabase (recommended) — provides ephemeral PR databases via branching]
+- **Tech Stack**: Next.js 15 / React 19 / TypeScript on Node 20
+- **Platform**: Google Cloud Platform (Cloud Run)
+- **Database**: Neon (serverless Postgres with per-PR branching)
+- **Container Registry**: Artifact Registry
+- **Secrets**: Google Secret Manager
 - **Organization**: [GitHub org name]
 
 ### Build & Test Commands
@@ -188,7 +191,7 @@ approved, tests passing, no lint errors, PR merged to main.
 | `docs/GETTING-STARTED.md` | First-time setup walkthrough |
 | `docs/FAQ.md` | Common questions for non-engineers |
 | `docs/TICKET-FORMAT.md` | Agentic PRD Lite ticket format (canonical) |
-| `docs/PATTERN-LIBRARY.md` | Known solutions for Render/Supabase/GitHub silent failures |
+| `docs/PATTERN-LIBRARY.md` | Known solutions for Cloud Run/Neon/GitHub silent failures |
 | `docs/ARTIFACT-FLOW.md` | Artifact flow diagrams and authority matrix |
 | `docs/AGENT-WORKFLOW-SUMMARY.md` | Complete workflow documentation |
 | `docs/MAINTENANCE.md` | Weekly audit and maintenance guide |

@@ -1,9 +1,11 @@
 <!-- FRAMEWORK:START -->
-# Agile Flow
+# Agile Flow (GCP Edition)
 
-[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE) [![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](.agile-flow-version) [![Use this template](https://img.shields.io/badge/Use_this-template-2ea44f)](https://github.com/vibeacademy/agile-flow/generate)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE) [![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](.agile-flow-version) [![Use this template](https://img.shields.io/badge/Use_this-template-2ea44f)](https://github.com/vibeacademy/agile-flow-gcp/generate)
 
-A Claude Code project template that bootstraps a complete agile development workflow with specialized AI agents.
+A Claude Code project template that bootstraps a complete agile development workflow with specialized AI agents, **configured for Google Cloud Platform**.
+
+> **Not on GCP?** This is the GCP-specific fork. The upstream [vibeacademy/agile-flow](https://github.com/vibeacademy/agile-flow) ships with Render + Supabase as the default and supports Vercel, Cloudflare, Railway, and Fly.io. Use that one if you're deploying anywhere other than GCP.
 
 [![Watch the video](https://img.youtube.com/vi/rkHxmnsyTiM/maxresdefault.jpg)](https://youtu.be/rkHxmnsyTiM)
 
@@ -54,12 +56,21 @@ The agents hand off work to each other through a structured workflow, with human
 
 ### What This Does NOT Include
 
-Agile Flow is a **workflow template**, not a full application. You provide:
+Agile Flow GCP is a **workflow template**, not a full application. You provide:
 
-- **Your application code** — the template ships a minimal starter app; you replace it with your own
-- **Your database** — Supabase is recommended and documented, but you choose your data layer
-- **Your deployment platform** — Render is the default, but Vercel, Railway, and Cloudflare are documented alternatives
+- **Your application code** — the template ships a minimal Next.js starter; you replace it with your own
+- **Your GCP project** — you create and fund the GCP project; see `docs/PLATFORM-GUIDE.md` for setup
+- **Your Neon account** — you create the Neon project and paste the credentials into GitHub secrets
 - **Your domain logic** — agents help you build, but you define what to build
+
+### What This DOES Include
+
+- **A working Dockerfile** for Next.js standalone output on Cloud Run
+- **GitHub Actions workflows** for production deploys and ephemeral PR previews
+- **Neon branching integration** — every PR gets its own database branch
+- **Cloud Run revision tagging** — every PR gets a stable preview URL with zero production traffic
+- **Workload Identity Federation support** (with SA key fallback for workshops)
+- **Stack-specific agent guardrails** — the `github-ticket-worker` agent knows about Cloud Run gotchas, Neon cold starts, and `NEXT_PUBLIC_*` build-time baking
 
 ## Prerequisites
 
