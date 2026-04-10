@@ -1,4 +1,4 @@
-# Pattern Library: GCP Cloud Run + Neon + GitHub Stack
+# Pattern Library: GCP Cloud Run + Neon + FastAPI Stack
 
 > Canonical reference for agents and workshop participants. Each pattern documents
 > the **correct** way to solve a known problem, the **gotcha** that causes it, and
@@ -10,8 +10,8 @@
 
 ### Cloud Run
 
-1. [Cloud Run: HOSTNAME Must Be 0.0.0.0](#1-cloud-run-hostname-must-be-0000)
-2. [Cloud Run: NEXT_PUBLIC_* Vars Are Baked at Build Time](#2-cloud-run-next_public_-vars-are-baked-at-build-time)
+1. [Cloud Run: Bind Uvicorn to 0.0.0.0](#1-cloud-run-bind-uvicorn-to-0000)
+2. [Cloud Run: Env Vars Are Runtime, Not Build-Time](#2-cloud-run-env-vars-are-runtime-not-build-time)
 3. [Cloud Run: Env Var Updates Create a New Revision](#3-cloud-run-env-var-updates-create-a-new-revision)
 4. [Cloud Run: Reverse Proxy Headers for Redirects](#4-cloud-run-reverse-proxy-headers-for-redirects)
 5. [Cloud Run: Secret Manager Env Mount vs File Mount](#5-cloud-run-secret-manager-env-mount-vs-file-mount)
@@ -31,49 +31,46 @@
 13. [Workload Identity Federation vs Service Account Keys](#13-workload-identity-federation-vs-service-account-keys)
 14. [GCP: iam.serviceAccountUser Is Required to Deploy to Cloud Run](#14-gcp-iamserviceaccountuser-is-required-to-deploy-to-cloud-run)
 
+### FastAPI / Python
+
+15. [FastAPI: Run Alembic Before Deploying a Schema Change](#15-fastapi-run-alembic-before-deploying-a-schema-change)
+16. [SQLModel: Use Column Strings for order_by to Satisfy mypy](#16-sqlmodel-use-column-strings-for-order_by-to-satisfy-mypy)
+17. [SQLModel: Small Connection Pool on Cloud Run](#17-sqlmodel-small-connection-pool-on-cloud-run)
+18. [HTMX: Return Fragments, Not Full Pages](#18-htmx-return-fragments-not-full-pages)
+19. [HTMX: hx-target and hx-swap Must Match Your Response Shape](#19-htmx-hx-target-and-hx-swap-must-match-your-response-shape)
+
 ### GitHub Actions
 
-15. [GitHub Actions: hashFiles() Scope Limitation](#15-github-actions-hashfiles-scope-limitation)
-16. [GitHub Actions: Graceful Secret Gating](#16-github-actions-graceful-secret-gating)
-17. [GitHub Actions: CI Checks Not Attaching to PR](#17-github-actions-ci-checks-not-attaching-to-pr)
-18. [GitHub Actions: Reusable Workflow Missing workflow_call](#18-github-actions-reusable-workflow-missing-workflow_call)
+20. [GitHub Actions: hashFiles() Scope Limitation](#20-github-actions-hashfiles-scope-limitation)
+21. [GitHub Actions: Graceful Secret Gating](#21-github-actions-graceful-secret-gating)
+22. [GitHub Actions: CI Checks Not Attaching to PR](#22-github-actions-ci-checks-not-attaching-to-pr)
+23. [GitHub Actions: Reusable Workflow Missing workflow_call](#23-github-actions-reusable-workflow-missing-workflow_call)
 
 ### GitHub Platform
 
-19. [GitHub Projects: Labels vs Board Columns](#19-github-projects-labels-vs-board-columns)
-20. [GitHub Projects: CLI Truncation at 30 Items](#20-github-projects-cli-truncation-at-30-items)
-21. [GitHub: Account Switching for Multi-Agent Workflows](#21-github-account-switching-for-multi-agent-workflows)
-22. [GitHub MCP Server vs gh CLI for Agent Workflows](#22-github-mcp-server-vs-gh-cli-for-agent-workflows)
+24. [GitHub Projects: Labels vs Board Columns](#24-github-projects-labels-vs-board-columns)
+25. [GitHub Projects: CLI Truncation at 30 Items](#25-github-projects-cli-truncation-at-30-items)
+26. [GitHub: Account Switching for Multi-Agent Workflows](#26-github-account-switching-for-multi-agent-workflows)
+27. [GitHub MCP Server vs gh CLI for Agent Workflows](#27-github-mcp-server-vs-gh-cli-for-agent-workflows)
 
 ### App Code
 
-23. [Server-Side URLs: Never Hardcode Origins](#23-server-side-urls-never-hardcode-origins)
-24. [Next.js Standalone Output Is Required](#24-nextjs-standalone-output-is-required)
+28. [Server-Side URLs: Never Hardcode Origins](#28-server-side-urls-never-hardcode-origins)
 
 ---
 
-## 1. Cloud Run: HOSTNAME Must Be 0.0.0.0
+## 1. Cloud Run: Bind Uvicorn to 0.0.0.0
 
-**Gotcha:** Next.js binds to `localhost` by default. Cloud Run routes requests
-via a proxy that cannot reach `localhost`, so the container passes its own
-startup checks but fails the platform health check with "container started but
-did not listen on the configured port." There is no useful error message —
-just a failed deploy and an unreachable service.
+**Gotcha:** Uvicorn binds to `127.0.0.1` (localhost) by default. Cloud Run
+routes requests via a proxy that cannot reach localhost, so the container
+passes its own startup checks but fails the platform health check with
+"container started but did not listen on the configured port." There is
+no useful error message — just a failed deploy and an unreachable service.
 
-**Pattern:** Set `HOSTNAME=0.0.0.0` in the Dockerfile runner stage. Next.js's
-standalone `server.js` honors this environment variable.
+**Pattern:** Always pass `--host 0.0.0.0` to uvicorn.
 
 ```dockerfile
-FROM node:20-alpine AS runner
-ENV NODE_ENV=production
-ENV PORT=8080
-ENV HOSTNAME=0.0.0.0
-
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-
-CMD ["node", "server.js"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
 This gotcha is the #1 cause of "it works on my machine" Cloud Run deploy
@@ -82,45 +79,48 @@ port, masking the bind address issue.
 
 ---
 
-## 2. Cloud Run: NEXT_PUBLIC_* Vars Are Baked at Build Time
+## 2. Cloud Run: Env Vars Are Runtime, Not Build-Time
 
-**Gotcha:** Next.js inlines any env var prefixed with `NEXT_PUBLIC_` into the
-client JavaScript bundle during `next build`. Setting these vars at Cloud Run
-deploy time has **no effect** on the client code — the browser reads whatever
-was present at build time. No error is thrown; the value silently becomes an
-empty string or whatever the build-time default was.
+**Gotcha:** Developers coming from Next.js or other build-time-heavy
+frameworks expect env vars to be "baked in" at build. FastAPI reads env
+vars at runtime via `os.environ` or `pydantic_settings.BaseSettings`, so
+you should **never** pass secrets or configuration via `docker build
+--build-arg`. Use `gcloud run deploy --set-env-vars` or mount Secret
+Manager secrets.
 
-**Wrong:**
+**Pattern:** Define config in `app/config.py` using pydantic-settings:
+
+```python
+from functools import lru_cache
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    database_url: str = "sqlite:///./dev.db"
+    app_url: str = "http://localhost:8080"
+    environment: str = "development"
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+```
+
+Deploy with runtime env vars:
 
 ```bash
 gcloud run deploy my-app \
-  --set-env-vars=NEXT_PUBLIC_APP_URL=https://myapp.com  # Has no client effect
+  --image=$IMAGE \
+  --set-env-vars="ENVIRONMENT=production" \
+  --set-secrets="DATABASE_URL=database-url:latest"
 ```
 
-**Pattern:** Pass `NEXT_PUBLIC_*` vars to `docker build --build-arg`:
-
-```dockerfile
-FROM node:20-alpine AS builder
-ARG NEXT_PUBLIC_APP_URL
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-RUN npm run build
-```
-
-```bash
-docker build \
-  --build-arg NEXT_PUBLIC_APP_URL=https://myapp.com \
-  -t $IMAGE \
-  .
-```
-
-**Server-only vars** (no `NEXT_PUBLIC_` prefix) are read at runtime and work
-fine with `--set-env-vars`. Use this distinction to decide where each var
-goes.
-
-**Alternative:** For per-PR preview builds where the URL changes every time,
-you'd either rebuild the image per PR or use runtime config (via
-`getServerSideProps`, route handlers, or a `/api/config` endpoint the client
-fetches on startup). This template rebuilds per PR.
+This is genuinely simpler than the Next.js `NEXT_PUBLIC_*` build-time
+baking problem — there's no distinction between "client vars" and
+"server vars" because FastAPI is server-only. If you add a frontend, its
+env vars are your problem, not FastAPI's.
 
 ---
 
@@ -155,34 +155,41 @@ isn't receiving traffic.
 ## 4. Cloud Run: Reverse Proxy Headers for Redirects
 
 **Gotcha:** Cloud Run sits behind a Google-managed proxy. Server-side code
-that reads `request.url` or constructs URLs via `new URL(path, request.url)`
-gets the internal Cloud Run origin, not the public URL your users see. This
-silently breaks redirects, magic link callbacks, and anything that
-constructs absolute URLs server-side. It works correctly in local dev, so
-you only notice it on deploy.
+that reads `request.url.hostname` or constructs URLs from
+`request.base_url` gets the internal Cloud Run origin, not the public URL
+your users see. This silently breaks redirects, magic link callbacks, and
+anything that constructs absolute URLs server-side. It works correctly in
+local dev, so you only notice it on deploy.
 
-**Pattern:** Read forwarded headers to construct the external origin.
+**Pattern:** Read `X-Forwarded-Proto` and `X-Forwarded-Host` in FastAPI
+route handlers.
 
-```typescript
-// app/api/redirect/route.ts
-export async function GET(request: Request) {
-  const headers = request.headers;
+```python
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse
 
-  const proto = headers.get('x-forwarded-proto') ?? 'https';
-  const host = headers.get('x-forwarded-host') ?? headers.get('host');
+app = FastAPI()
 
-  if (!host) {
-    return new Response('Missing host header', { status: 400 });
-  }
 
-  const origin = `${proto}://${host}`;
-  return Response.redirect(`${origin}/dashboard`, 302);
-}
+@app.get("/login")
+async def login(request: Request) -> RedirectResponse:
+    proto = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if not host:
+        return RedirectResponse("/error?reason=missing-host")
+    external_origin = f"{proto}://{host}"
+    return RedirectResponse(f"{external_origin}/dashboard")
 ```
 
-For Next.js middleware, use `request.nextUrl` — it handles this correctly
-for you. The gotcha is specifically about Route Handlers and custom
-redirects.
+**Alternative:** Run uvicorn with `--proxy-headers` and `--forwarded-allow-ips="*"`
+so `request.url` is automatically rewritten. Safe on Cloud Run because
+the only thing in front of your container is Google's trusted proxy.
+
+```dockerfile
+CMD ["uv", "run", "--no-sync", "uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", "--port", "8080", \
+     "--proxy-headers", "--forwarded-allow-ips=*"]
+```
 
 ---
 
@@ -203,7 +210,7 @@ gcloud run deploy my-app \
 ```
 
 Use this for secrets that don't rotate often. Simpler to read in app code
-(`process.env.DATABASE_URL`).
+(`os.environ["DATABASE_URL"]` or via pydantic-settings).
 
 **Pattern (file mount, for rotating secrets):**
 
@@ -214,12 +221,12 @@ gcloud run deploy my-app \
 
 Your app reads the file on each use:
 
-```typescript
-import { readFileSync } from 'fs';
+```python
+from pathlib import Path
 
-function getApiKey(): string {
-  return readFileSync('/secrets/api-key', 'utf-8').trim();
-}
+
+def get_api_key() -> str:
+    return Path("/secrets/api-key").read_text().strip()
 ```
 
 The file is refreshed automatically when a new secret version is added.
@@ -230,9 +237,8 @@ The file is refreshed automatically when a new secret version is added.
 
 **Gotcha:** With `--min-instances=0` (the default), Cloud Run scales the
 service down to zero instances after a few minutes of idle. The first
-request after scale-down takes 2-5 seconds while a new container starts.
-For a latency-sensitive endpoint, this looks like "the site is randomly
-slow once a day."
+request after scale-down takes 1-3 seconds while a new container starts
+(Python containers are typically faster than Node.js containers).
 
 **Patterns by use case:**
 
@@ -252,8 +258,8 @@ gcloud run deploy my-app \
 ```
 
 **CPU allocation:** By default, Cloud Run only allocates CPU during request
-processing. For background work (cron handlers, WebSocket servers), add
-`--cpu-boost` or `--no-cpu-throttling` so the container stays active.
+processing. For background work (cron handlers, long-running async tasks),
+add `--cpu-boost` or `--no-cpu-throttling` so the container stays active.
 
 ---
 
@@ -278,12 +284,10 @@ gcr.io/myproject/my-app:abc1234
 Setup:
 
 ```bash
-# Create the repo (once per project)
 gcloud artifacts repositories create myrepo \
   --repository-format=docker \
   --location=us-central1
 
-# Configure docker to auth against it
 gcloud auth configure-docker us-central1-docker.pkg.dev
 ```
 
@@ -293,8 +297,7 @@ gcloud auth configure-docker us-central1-docker.pkg.dev
 
 **Gotcha:** A naive PR preview approach creates a new Cloud Run service per
 PR (`my-app-pr-42`). This proliferates services, consumes the 1000-per-region
-quota, and makes cleanup tedious. It also means every PR needs its own IAM
-setup, secret mounts, and Artifact Registry tags.
+quota, and makes cleanup tedious.
 
 **Pattern:** Deploy each PR as a tagged revision of the **same** service
 with `--no-traffic`. The tag gives you a stable preview URL without
@@ -358,18 +361,20 @@ Neon's `create-branch-action` exposes both URLs as outputs:
     branch_name: pr-${{ github.event.pull_request.number }}
     api_key: ${{ secrets.NEON_API_KEY }}
 
-- name: Use pooled URL
+- name: Deploy with pooled URL
   run: |
-    echo "POOLED: ${{ steps.neon.outputs.db_url_pooled }}"
-    echo "DIRECT: ${{ steps.neon.outputs.db_url }}"
+    gcloud run deploy my-app \
+      --update-env-vars="DATABASE_URL=${{ steps.neon.outputs.db_url_pooled }}"
 ```
 
 Pass `db_url_pooled` to Cloud Run, not `db_url`.
 
-**Exception:** If you're running long-lived migrations or a single
-background worker with `--min-instances=1`, the direct connection is fine
-and gives you session-level features PgBouncer transaction-pooling mode
-doesn't support (e.g., `LISTEN/NOTIFY`, `SET SESSION`).
+**Exception:** Alembic migrations should use the **direct** URL, not the
+pooled one. PgBouncer in transaction-pooling mode doesn't support the
+session-level operations Alembic needs (e.g., `SET lock_timeout`).
+This template runs migrations from GitHub Actions (not Cloud Run), so
+just use `db_url` in the migrations step and `db_url_pooled` in the
+deploy step.
 
 ---
 
@@ -378,32 +383,27 @@ doesn't support (e.g., `LISTEN/NOTIFY`, `SET SESSION`).
 **Gotcha:** Neon's compute endpoint scales to zero after ~5 minutes of
 inactivity. The first query after suspend takes 500ms-2s while the compute
 instance wakes up. If your app uses a short connection timeout (e.g., 1s),
-that first query fails outright with a connection error. From Cloud Run,
-the symptom looks like "my app is randomly broken the first time I load it
-each day."
+that first query fails outright with a connection error.
 
-**Pattern:** Use a generous connection timeout and retry on connection
-errors at the app layer.
+**Pattern:** Use a generous connection timeout and enable `pool_pre_ping`
+in SQLAlchemy/SQLModel so dead connections are detected and replaced:
 
-```typescript
-import { Pool } from 'pg';
+```python
+from sqlmodel import create_engine
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  connectionTimeoutMillis: 10_000,  // Generous wakeup budget
-  idleTimeoutMillis: 30_000,
-  max: 5,  // Small pool; Cloud Run instances are short-lived
-});
+engine = create_engine(
+    settings.database_url,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,   # detects dead connections on checkout
+    pool_recycle=300,     # recycle connections older than 5 min
+)
 ```
 
 **Alternative:** Disable autosuspend on the main branch by setting the
-compute endpoint to never suspend. Costs more ($5-10/month for the
-always-on compute) but eliminates the wakeup latency. For PR branches,
-keep autosuspend on — previews are fine with cold starts.
-
-**Keep-alive hack (workshop-acceptable, not for prod):** Set up a Cloud
-Scheduler job to hit the main branch every 4 minutes. Keeps compute warm
-for pennies. Don't do this for PR branches or you'll rack up compute hours.
+compute endpoint to never suspend. Costs more ($5-10/month) but
+eliminates the wakeup latency. For PR branches, keep autosuspend on —
+previews are fine with cold starts.
 
 ---
 
@@ -419,15 +419,6 @@ Run service. For `us-central1` Cloud Run, use Neon's `aws-us-east-2`
 (the closest available). For `europe-west1`, use Neon's `aws-eu-central-1`.
 
 Neon's region list is at <https://neon.tech/docs/introduction/regions>.
-
-**Verification:**
-
-```bash
-# From a Cloud Run container or a local machine in the same region:
-time curl -o /dev/null -s $NEON_HOST
-
-# Should be well under 50ms. Over 100ms = wrong region.
-```
 
 ---
 
@@ -461,16 +452,15 @@ twice on the same PR. The action handles all of this.
 - name: Delete Neon branch
   if: secrets.NEON_API_KEY != ''
   uses: neondatabase/delete-branch-action@v3
-  continue-on-error: true  # PR may have been closed without a branch
+  continue-on-error: true
   with:
     project_id: ${{ secrets.NEON_PROJECT_ID }}
     branch: pr-${{ github.event.number }}
     api_key: ${{ secrets.NEON_API_KEY }}
 ```
 
-`continue-on-error: true` on the cleanup handles the case where the branch
-was never created (e.g., PR opened before Neon was configured). The action
-is idempotent — calling it twice on the same branch is safe.
+`continue-on-error: true` on cleanup handles the case where the branch
+was never created. The action is idempotent.
 
 ---
 
@@ -534,8 +524,7 @@ cryptic `PERMISSION_DENIED: Permission 'iam.serviceaccounts.actAs' denied`
 error.
 
 **Pattern:** Grant the deployer service account the `roles/iam.serviceAccountUser`
-role on itself (if runtime and deployer are the same SA) or on the runtime
-SA:
+role:
 
 ```bash
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
@@ -550,7 +539,177 @@ almost always the fix.
 
 ---
 
-## 15. GitHub Actions: hashFiles() Scope Limitation
+## 15. FastAPI: Run Alembic Before Deploying a Schema Change
+
+**Gotcha:** If you deploy a new container revision that expects a new
+column and the database doesn't have it yet, every request hits a
+`UndefinedColumnError` until you run the migration. "Run the migration
+after deploy" is backwards. Run it first.
+
+**Pattern:** The `deploy.yml` workflow runs `alembic upgrade head` against
+the production Neon URL **before** building and deploying the container.
+For PR previews, `preview-deploy.yml` runs Alembic against the freshly-
+created Neon branch database before deploying the preview revision.
+
+```yaml
+- name: Run Alembic migrations
+  env:
+    DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+  run: |
+    uv sync --frozen
+    uv run alembic upgrade head
+
+- name: Build and push container
+  run: docker build -t $IMAGE . && docker push $IMAGE
+
+- name: Deploy to Cloud Run
+  run: gcloud run deploy ...
+```
+
+**For destructive migrations** (dropping columns, renaming tables): use a
+two-step deploy. First deploy a revision that tolerates both schemas, then
+run the migration, then deploy a revision that uses only the new schema.
+Never do destructive migrations and code changes in the same commit.
+
+---
+
+## 16. SQLModel: Use Column Strings for order_by to Satisfy mypy
+
+**Gotcha:** SQLModel's type annotations make `Todo.created_at` look like
+a `datetime` to mypy, not a SQLAlchemy column. Calling `.desc()` on it
+fails type checking, and using `sqlalchemy.desc(Todo.created_at)` also
+fails because mypy thinks you're passing a `datetime` to `desc()`.
+
+**Pattern:** Pass the column name as a string to `desc()`:
+
+```python
+from sqlalchemy import desc
+from sqlmodel import select
+
+todos = session.exec(
+    select(Todo).order_by(desc("created_at"))
+).all()
+```
+
+This works at runtime and satisfies mypy. The tradeoff is losing the
+static check that `created_at` is actually a column — but that's mostly
+harmless because Alembic + SQLModel fail loudly at startup if the column
+doesn't exist.
+
+**Alternative:** Add `# type: ignore[attr-defined]` on the `.desc()` call.
+Cleaner when you want the attribute-based syntax but accept the mypy
+escape hatch.
+
+---
+
+## 17. SQLModel: Small Connection Pool on Cloud Run
+
+**Gotcha:** SQLAlchemy's default `pool_size=5, max_overflow=10` means a
+single Cloud Run instance can hold 15 Postgres connections. Cloud Run can
+spin up dozens of instances during a traffic spike. With Neon's free tier
+connection limits, you'll hit `remaining connection slots are reserved`
+fast.
+
+**Pattern:** Keep the pool small on Cloud Run (Neon's PgBouncer handles
+cross-instance pooling):
+
+```python
+engine = create_engine(
+    settings.database_url,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
+```
+
+Combined with Neon's pooled URL (pattern #9), this gives you plenty of
+capacity without exhausting connection slots.
+
+For apps with very short request lifetimes and high throughput, consider
+`pool_size=1, max_overflow=2` and rely entirely on PgBouncer for pooling.
+
+---
+
+## 18. HTMX: Return Fragments, Not Full Pages
+
+**Gotcha:** When an HTMX request hits a route, the response replaces part
+of the DOM — not the whole page. If your handler returns a full HTML
+document (`<!DOCTYPE html>...`), HTMX inserts the entire document into
+the target element, which breaks layout and duplicates `<html>`, `<head>`,
+`<body>` tags.
+
+**Pattern:** Return partial templates (fragments) from HTMX routes.
+
+```python
+# Full page: renders base.html → home.html
+@router.get("/", response_class=HTMLResponse)
+async def home(request: Request, session: SessionDep):
+    todos = session.exec(select(Todo)).all()
+    return templates.TemplateResponse(
+        request, "home.html", {"todos": todos}
+    )
+
+# HTMX fragment: renders just the updated list
+@router.post("/todos", response_class=HTMLResponse)
+async def create_todo(request: Request, session: SessionDep, title: str = Form()):
+    session.add(Todo(title=title))
+    session.commit()
+    todos = session.exec(select(Todo)).all()
+    return templates.TemplateResponse(
+        request, "_fragments/todo_list.html", {"todos": todos}
+    )
+```
+
+Convention: prefix fragment templates with `_fragments/` or `_partials/`
+so it's obvious which templates are full pages vs partial HTML.
+
+---
+
+## 19. HTMX: hx-target and hx-swap Must Match Your Response Shape
+
+**Gotcha:** If your handler returns an `<li>` but your `hx-target` points
+at a `<ul>` with `hx-swap="outerHTML"`, HTMX replaces the `<ul>` with an
+`<li>` — breaking the layout. The fragment template, the target selector,
+and the swap strategy all have to agree.
+
+**Pattern:** Document the contract explicitly in your route comments.
+
+```python
+@router.post("/todos/{todo_id}/toggle", response_class=HTMLResponse)
+async def toggle_todo(request: Request, session: SessionDep, todo_id: int):
+    """Toggle a todo and return the single item fragment.
+
+    Contract:
+    - Fragment: _fragments/todo_item.html (renders a single <li>)
+    - hx-target: #todo-{id} (the <li> being toggled)
+    - hx-swap: outerHTML (replaces the <li> with the updated <li>)
+    """
+    todo = session.get(Todo, todo_id)
+    if todo is None:
+        return HTMLResponse("", status_code=404)
+    todo.done = not todo.done
+    session.add(todo)
+    session.commit()
+    session.refresh(todo)
+    return templates.TemplateResponse(
+        request, "_fragments/todo_item.html", {"todo": todo}
+    )
+```
+
+Standard combinations:
+
+| Operation | Fragment returns | hx-target | hx-swap |
+|-----------|------------------|-----------|---------|
+| Create (append to list) | New item only | `#list` | `beforeend` |
+| Create (replace list) | Whole list | `#list` | `outerHTML` |
+| Update | Updated item only | `#item-{id}` | `outerHTML` |
+| Delete | Empty response | `#item-{id}` | `outerHTML` |
+| Validate | Inline error message | `#form-errors` | `innerHTML` |
+
+---
+
+## 20. GitHub Actions: hashFiles() Scope Limitation
 
 **Gotcha:** The `hashFiles()` function in GitHub Actions only sees files in
 the workspace. Using it in a workflow that runs before checkout (e.g., to
@@ -566,19 +725,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4  # Must come first
-
       - uses: actions/cache@v4
         with:
-          path: node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          path: .venv
+          key: ${{ runner.os }}-python-${{ hashFiles('uv.lock') }}
 ```
-
-If you need to compute a hash before checkout, use a different strategy
-(e.g., use the commit SHA as the cache key).
 
 ---
 
-## 16. GitHub Actions: Graceful Secret Gating
+## 21. GitHub Actions: Graceful Secret Gating
 
 **Gotcha:** A workflow that hard-requires a secret will fail on any fork or
 downstream repo that hasn't configured it. For a template repo, this means
@@ -612,7 +767,7 @@ reason. This keeps the template green out of the box.
 
 ---
 
-## 17. GitHub Actions: CI Checks Not Attaching to PR
+## 22. GitHub Actions: CI Checks Not Attaching to PR
 
 **Gotcha:** Workflows triggered only by `push:` don't attach their check
 runs to PRs from forks or other branches. The PR shows "no status checks"
@@ -629,13 +784,9 @@ on:
     branches: [main]
 ```
 
-The `pull_request` event attaches the check run to the PR, even if the PR
-is from a fork. Combine with `workflow_call:` if another workflow invokes
-this one (see pattern 18).
-
 ---
 
-## 18. GitHub Actions: Reusable Workflow Missing workflow_call
+## 23. GitHub Actions: Reusable Workflow Missing workflow_call
 
 **Gotcha:** When one workflow calls another via `uses: ./.github/workflows/ci.yml`,
 the called workflow must have `workflow_call:` in its `on:` block. Without
@@ -655,48 +806,30 @@ on:
   workflow_call:  # REQUIRED for other workflows to invoke this
 ```
 
-```yaml
-# preview-deploy.yml — the caller
-jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
-```
-
-If you see "0 jobs" in a workflow run, check that the called workflow has
-`workflow_call:` in its triggers.
-
 ---
 
-## 19. GitHub Projects: Labels vs Board Columns
+## 24. GitHub Projects: Labels vs Board Columns
 
 **Gotcha:** Labels and board columns look similar but are tracked differently.
-A ticket can have the `ready` label but still be in the `Backlog` column —
-or vice versa. Agents that filter by label will get a different list than
-agents that filter by column.
+A ticket can have the `ready` label but still be in the `Backlog` column.
+Agents that filter by label will get a different list than agents that
+filter by column.
 
 **Pattern:** For board workflow, **always** filter by the column (Status
 field), not by label. Labels are free-form metadata; columns are workflow
 state.
 
 ```bash
-# Correct: filter by board column
-gh project item-list 13 --owner myorg --format json \
+gh project item-list 13 --owner myorg --format json --limit 200 \
   | jq '.items[] | select(.status == "Ready")'
-
-# Wrong: filter by label (may include items in other columns)
-gh issue list --label ready
 ```
-
-Use labels for classification (priority, type, area) and columns for
-workflow state.
 
 ---
 
-## 20. GitHub Projects: CLI Truncation at 30 Items
+## 25. GitHub Projects: CLI Truncation at 30 Items
 
 **Gotcha:** `gh project item-list` returns at most 30 items by default.
-For any board with more than 30 tickets, you silently miss the tail. This
-breaks grooming scripts, prioritization passes, and milestone checks.
+For any board with more than 30 tickets, you silently miss the tail.
 
 **Pattern:** Always pass `--limit` explicitly.
 
@@ -704,105 +837,51 @@ breaks grooming scripts, prioritization passes, and milestone checks.
 gh project item-list 13 --owner myorg --format json --limit 200
 ```
 
-Pick a limit higher than you expect the board to grow. 200 is usually
-safe for a team-scale board. If you're managing a larger backlog, paginate.
-
 ---
 
-## 21. GitHub: Account Switching for Multi-Agent Workflows
+## 26. GitHub: Account Switching for Multi-Agent Workflows
 
 **Gotcha:** When multiple agents share one machine (worker bot, reviewer
 bot, human operator), `gh` uses whichever account was active last.
-Worker-created PRs may accidentally come from the reviewer account (if it
-was last active), corrupting the audit trail.
 
-**Pattern:** The `.claude/hooks/ensure-github-account.sh` hook
-auto-switches accounts before PR operations. Never rely on manual account
-management.
+**Pattern:** The `.claude/hooks/ensure-github-account.sh` hook auto-switches
+accounts before PR operations. Never rely on manual account management.
 
 See `.claude/README.md` for the full account separation model.
 
 ---
 
-## 22. GitHub MCP Server vs gh CLI for Agent Workflows
+## 27. GitHub MCP Server vs gh CLI for Agent Workflows
 
-**Gotcha:** The GitHub MCP server is convenient for simple queries but
-does not cleanly support account switching. For multi-agent workflows that
-require the worker and reviewer to operate as different identities, the
-MCP server gets stuck on whichever token it was initialized with.
+**Gotcha:** The GitHub MCP server does not cleanly support account
+switching for multi-agent workflows.
 
 **Pattern:** This template uses the `gh` CLI for all GitHub operations.
-The `.claude/hooks/ensure-github-account.sh` hook switches accounts before
-PR-creating or PR-reviewing commands. If you want to use the MCP server
-for read-only queries, fine — but PR creation, review, and merge must go
-through `gh`.
+The `.claude/hooks/ensure-github-account.sh` hook switches accounts
+before PR-creating or PR-reviewing commands.
 
 ---
 
-## 23. Server-Side URLs: Never Hardcode Origins
+## 28. Server-Side URLs: Never Hardcode Origins
 
 **Gotcha:** Hardcoding `https://myapp.com` in server code breaks preview
 environments. Every PR preview has a different URL, and the code still
-redirects to production, leaks production URLs into emails, or fails
-CORS checks. This is the single most common preview-environment breakage.
+redirects to production.
 
 **Pattern:**
 
-```typescript
-// Client-side: use window.location
-const origin = window.location.origin;
+```python
+from fastapi import Request
 
-// Server-side (Next.js route handler): read from forwarded headers
-export async function GET(request: Request) {
-  const proto = request.headers.get('x-forwarded-proto') ?? 'https';
-  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
-  const origin = `${proto}://${host}`;
-  // ... use `origin` for redirects, absolute URLs, email links
-}
+
+def get_external_origin(request: Request) -> str:
+    proto = request.headers.get("x-forwarded-proto", "https")
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if not host:
+        raise ValueError("Missing host header")
+    return f"{proto}://{host}"
 ```
 
-Never store the production URL in code or in a `NEXT_PUBLIC_*` variable
-if it's used for redirects. The whole point of preview environments is
-that they behave like production — including URL construction.
-
----
-
-## 24. Next.js Standalone Output Is Required
-
-**Gotcha:** The default `next build` output assumes you have the full
-`node_modules` directory at runtime. Copying `node_modules` into a Cloud
-Run container bloats the image to 1 GB+ and slows cold starts
-dramatically. The `output: 'standalone'` build mode produces a pruned,
-self-contained directory with only the files needed to run the server.
-
-**Pattern:**
-
-```typescript
-// next.config.ts
-import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
-  output: 'standalone',
-};
-
-export default nextConfig;
-```
-
-Dockerfile runner stage copies only the standalone output + static
-assets + public dir:
-
-```dockerfile
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-
-CMD ["node", "server.js"]
-```
-
-**Note:** With standalone, the entry point is `node server.js`, NOT
-`next start`. The `next` binary is not in the standalone bundle. If your
-Dockerfile has `CMD ["npm", "start"]`, it will fail with "next: command
-not found."
-
-Typical image size with standalone: ~150 MB. Without: ~1 GB. The cold
-start time difference alone is worth the switch.
+Never store the production URL in code. Construct the origin from request
+headers, or read it from a runtime env var (`APP_URL`) that differs per
+environment.

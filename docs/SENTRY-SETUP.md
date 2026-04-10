@@ -14,9 +14,10 @@ issues labeled `bug:auto` automatically.
 
 - `GITHUB_TOKEN` environment variable set (for creating issues)
 - `GITHUB_REPOSITORY` environment variable set (e.g., `your-org/agile-flow`)
-- `NEXT_PUBLIC_APP_URL` (baked at build time) or `APP_URL` (set at deploy
-  time via `gcloud run services update`) must point at the public service
-  URL so the self-DSN transport can POST events back to `/api/error-events`
+- `APP_URL` (set at deploy time via `gcloud run services update --set-env-vars`)
+  must point at the public service URL so the self-DSN transport can POST
+  events back to `/api/error-events`. FastAPI reads this at runtime — no
+  build-time baking.
 
 **How it works:**
 
@@ -74,6 +75,6 @@ This is not needed for the zero-config flow, which creates issues directly.
 |----------|----------|---------|
 | `GITHUB_TOKEN` | Yes (zero-config) | API token for creating GitHub issues |
 | `GITHUB_REPOSITORY` | Yes (zero-config) | Target repo (e.g., `org/agile-flow`) |
-| `NEXT_PUBLIC_APP_URL` | Yes (zero-config) | App's public URL for self-DSN construction (baked at build time) |
+| `APP_URL` | Yes (zero-config) | App's public URL for self-DSN construction (runtime env var) |
 | `SENTRY_DSN` | No | External Sentry/GlitchTip DSN (overrides self-DSN) |
 | `APP_URL` | No | Runtime override for the app URL (set via `gcloud run services update`) |

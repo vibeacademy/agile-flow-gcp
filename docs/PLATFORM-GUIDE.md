@@ -212,7 +212,7 @@ In your GitHub repo settings (Settings → Secrets and variables → Actions):
 | `GCP_REGION` | `us-central1` | Cloud Run + Artifact Registry region |
 | `ARTIFACT_REPO` | `agile-flow` | Artifact Registry repo name |
 | `CLOUD_RUN_SERVICE` | `agile-flow-app` | Cloud Run service name |
-| `NEXT_PUBLIC_APP_URL` | (your production URL) | Baked into client bundle at build time |
+| `APP_URL` | (your production URL) | Passed to the container at runtime for self-referential URL construction |
 | `NEON_DB_USER` | `neondb_owner` | Neon database role |
 
 ### Step 9: First Deploy
@@ -223,7 +223,7 @@ often reveal missing IAM grants — fix and retry.
 
 If the workflow succeeds but the container fails its health check with
 "starting but not ready," the most likely cause is a missing
-`HOSTNAME=0.0.0.0` in the Dockerfile. See `docs/PATTERN-LIBRARY.md`.
+`--host 0.0.0.0` on the uvicorn command in the Dockerfile. See pattern #1 in `docs/PATTERN-LIBRARY.md`.
 
 ---
 
@@ -290,6 +290,6 @@ Render as the default and documents alternatives for Vercel, Cloudflare,
 Railway, and Fly.io.
 
 Do not try to run this template on another platform without removing the
-GCP-specific workflows and Dockerfile settings. The `HOSTNAME=0.0.0.0`
-binding and standalone output mode are correct for Cloud Run but may need
+GCP-specific workflows and Dockerfile settings. The `--host 0.0.0.0`
+binding is correct for Cloud Run but may need
 adjustment on other targets.

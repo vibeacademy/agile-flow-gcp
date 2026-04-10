@@ -23,8 +23,12 @@ preview-deploy.yml
       +-- Create Neon branch: pr-{N}
       |       (copy-on-write from main, ~1 sec)
       |
-      +-- Build container image with NEXT_PUBLIC_* baked in
-      |       docker build --build-arg NEXT_PUBLIC_APP_URL=...
+      +-- Run Alembic migrations against the Neon branch database
+      |       uv run alembic upgrade head
+      |
+      +-- Build container image (no build args needed; FastAPI reads env
+      |   at runtime)
+      |       docker build -t IMAGE .
       |
       +-- Push to Artifact Registry
       |       us-central1-docker.pkg.dev/PROJECT/REPO/app:pr-N-sha
@@ -74,8 +78,8 @@ This has problems:
 
 The tradeoff: revision tagging means all PR previews share the service's
 **base configuration** (CPU, memory, scaling limits). You can't give one
-PR more memory than another. For this template's use case (Next.js web apps
-that all look similar), this is fine.
+PR more memory than another. For this template's use case (FastAPI web
+apps that all look similar), this is fine.
 
 ---
 
@@ -122,20 +126,17 @@ can bookmark it, share it, and link to it from the PR comment.
 
 ## Known Limitations
 
-### NEXT_PUBLIC_* Vars Have the Production URL
+### No Build-Time Env Var Baking Problem
 
-The container image is built with `NEXT_PUBLIC_APP_URL` set to the
-**production** URL, because that's what the GitHub Actions variable
-contains. Preview deployments use the same image, so client-side code
-reading `process.env.NEXT_PUBLIC_APP_URL` sees the production value, not
-the preview URL.
+Unlike Next.js, FastAPI reads all env vars at runtime. Preview and
+production use the same image; `gcloud run deploy --set-env-vars` passes
+per-environment configuration at deploy time. There is no "build-time
+vs runtime env var" distinction to trip over.
 
-**Workaround:** For anything that needs the origin, use server-side header
-reading instead of `NEXT_PUBLIC_*`. See pattern #23 in
-`docs/PATTERN-LIBRARY.md`.
-
-**Alternative:** Rebuild the image per PR with the preview URL. Doubles
-build time and complicates caching. Not worth it for most apps.
+If your app needs the public URL for self-referential operations (email
+links, email templates, signed redirects), use pattern #28 in
+`docs/PATTERN-LIBRARY.md` — read `X-Forwarded-Host` from the request or
+set `APP_URL` as a runtime env var that differs per deploy.
 
 ### Cold Start on First Request
 
@@ -181,7 +182,7 @@ gcloud run revisions list --service=my-app --region=us-central1 --limit=200 \
 3. If the revision failed, check the container logs: `gcloud logging read
    'resource.type="cloud_run_revision" AND resource.labels.revision_name="REVISION_NAME"'`
 
-**Most common cause:** missing `HOSTNAME=0.0.0.0` in the Dockerfile. See
+**Most common cause:** missing `--host 0.0.0.0` on the uvicorn command in the Dockerfile. See
 pattern #1 in `docs/PATTERN-LIBRARY.md`.
 
 **Preview URL works but database queries fail:**

@@ -79,15 +79,11 @@ fix the issue before merging.
 # Fix markdown formatting issues
 npx markdownlint --fix **/*.md
 
-# Fix code style issues (default Next.js starter)
-npx eslint . --fix
-
-# Fix code style issues (FastAPI starter from starters/fastapi/)
+# Fix code style issues
 uv run ruff check . --fix
 
 # Re-run tests locally to see what broke
-npm test               # Next.js (default)
-uv run pytest          # FastAPI starter
+uv run pytest
 ```
 
 If you are stuck, look at the CI error message -- it usually tells you
@@ -104,11 +100,11 @@ programming language.
 **Quick fix:**
 
 ```bash
-# Node.js projects (default -- look for package.json in your project root)
-npm install package-name
-
-# Python projects (FastAPI starter -- look for pyproject.toml in your project root)
+# Add a dependency to the project
 uv add package-name
+
+# Add a dev-only dependency (e.g., a test or lint tool)
+uv add --dev package-name
 
 # Then commit the change
 git add -A
@@ -137,12 +133,10 @@ runs the appropriate linter and test suite.
 # Read the error output in your terminal -- it tells you what failed.
 
 # If it is a lint (code style) error, try the auto-fixer:
-npx eslint . --fix              # Next.js (default)
-uv run ruff check . --fix       # FastAPI starter
+uv run ruff check . --fix
 
 # If tests are failing, run them locally to see details:
-npm test                        # Next.js (default)
-uv run pytest                   # FastAPI starter
+uv run pytest
 
 # Fix the issues, commit your fixes, then try pushing again.
 git add -A

@@ -67,50 +67,45 @@ TICKET: BACKEND-042 -- Add /api/ping health-check endpoint
 
 Problem Statement:
 The deployment pipeline has no lightweight endpoint to verify the service is
-running. Render health checks currently hit /api/health. We need a dedicated
-/api/ping endpoint that returns JSON with zero middleware overhead for use
-as an uptime monitor target.
+running. Cloud Run health checks currently hit /api/health. We need a
+dedicated /api/ping endpoint that returns JSON with zero middleware overhead
+for use as an uptime monitor target.
 
 Parent Epic: INFRA-010 (Observability and Health Checks)
 Effort Estimate: XS
 Priority: P1
 
 --- A. Environment Context ---
-- Stack: Next.js 15 / React 19 / TypeScript (see TECHNICAL-ARCHITECTURE.md)
-- Integration points: Render health-check configuration (render.yaml)
-- Existing pattern: follow app/api/health/route.ts for route structure
+- Stack: FastAPI + Python 3.12 (see TECHNICAL-ARCHITECTURE.md)
+- Integration points: Cloud Run container health check endpoint
+- Existing pattern: follow app/api/health.py for router structure
 - Files to create or modify:
-    - CREATE app/api/ping/route.ts
-    - CREATE __tests__/ping.test.ts
+    - CREATE app/api/ping.py
+    - MODIFY app/main.py (register the new router)
+    - CREATE tests/test_ping.py
 
 --- B. Guardrails ---
 - Do NOT add authentication to this endpoint (it must be publicly reachable).
-- Do NOT import any database or ORM modules; this endpoint must have zero
-  downstream dependencies.
+- Do NOT import app.db or any SQLModel; this endpoint must have zero
+  downstream dependencies so health checks never wake up Neon compute.
 - Response time must be < 10ms at p99.
 - Do NOT modify any existing routes or middleware.
 
 --- C. Happy Path ---
 1. Client sends GET /api/ping with no body and no auth headers.
-2. Next.js App Router routes to the ping handler.
+2. FastAPI routes to the ping handler defined in app/api/ping.py.
 3. Handler returns HTTP 200 with body: {"ping": "pong"}
    Content-Type: application/json
 4. No database call, no logging side-effect, no cache hit.
 
 --- D. Definition of Done ---
-- ping.test.ts asserts GET /api/ping returns 200 with body {"ping": "pong"}.
-- ping.test.ts asserts response Content-Type is application/json.
-- `npm run lint` returns zero errors.
-- `npm run typecheck` (tsc --noEmit) returns zero errors.
-- `npm test` passes all tests including the new test.
-- PR reviewer can run `curl localhost:3000/api/ping` and see {"ping": "pong"}.
+- tests/test_ping.py asserts GET /api/ping returns 200 with body {"ping": "pong"}.
+- tests/test_ping.py asserts response Content-Type is application/json.
+- `uv run ruff check .` returns zero errors.
+- `uv run mypy app/` returns zero errors.
+- `uv run pytest` passes all tests including the new test.
+- PR reviewer can run `curl localhost:8080/api/ping` and see {"ping": "pong"}.
 ```
-
-> **Note:** This example shows the default Next.js/TypeScript project. If
-> you swapped to the FastAPI starter (from `starters/fastapi/`), adapt file
-> paths (e.g., `app/api/` to `src/routes/`), lint commands (`eslint` to
-> `ruff`, `tsc` to `mypy`), and test runners (`vitest` to `pytest`) to
-> match your project's actual stack as defined in TECHNICAL-ARCHITECTURE.md.
 
 ---
 

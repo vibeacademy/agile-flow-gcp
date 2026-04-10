@@ -37,14 +37,15 @@ Runs on every push and pull request to `main`.
 | `build` | Shell script correctness (shellcheck) |
 | `test` | Command and agent file validation |
 | `lint-agent-policies` | Agent policy safety rules |
-| `node` | ESLint, tsc --noEmit, Vitest, Next.js build |
+| `node` | (auto-skipped — this fork has no package.json) |
 | `python` | Ruff lint, mypy (non-blocking), pytest with coverage |
 
 The `node` job is conditional — it only runs when `package.json` exists.
 The `python` job is conditional — it only runs when `pyproject.toml` exists.
-Both can coexist; the template ships with Next.js by default so the `node`
-job runs and the `python` job skips. If you swap to the FastAPI starter
-(see `starters/fastapi/README.md`), the jobs reverse automatically.
+This fork ships with FastAPI by default so the `python` job runs and
+the `node` job auto-skips. If you introduce a Node-based frontend
+alongside the FastAPI backend, the `node` job will activate
+automatically as soon as you add a `package.json` at the repo root.
 
 Coverage threshold for the Python job defaults to 80% and can be overridden
 via the `COVERAGE_THRESHOLD` environment variable.
@@ -96,10 +97,12 @@ Deploys to Cloud Run production on merge to `main`.
 | `GCP_REGION` | `us-central1` | Cloud Run + Artifact Registry region |
 | `ARTIFACT_REPO` | `agile-flow` | Artifact Registry repo name |
 | `CLOUD_RUN_SERVICE` | `agile-flow-app` | Cloud Run service name |
-| `NEXT_PUBLIC_APP_URL` | (your URL) | Baked into client bundle at build time |
+| `APP_URL` | (your URL) | Runtime env var for self-referential URL construction |
+| `PRODUCTION_DATABASE_URL` | Secret | Neon main branch pooled URL; used by `alembic upgrade head` before deploy |
 
-The deploy workflow builds a container image with `NEXT_PUBLIC_*` args
-passed as `--build-arg`, pushes it to Artifact Registry, then calls
+The deploy workflow runs `alembic upgrade head` against the production
+Neon database, builds a container image (no build args needed — FastAPI
+reads env vars at runtime), pushes it to Artifact Registry, then calls
 `gcloud run deploy`. Runtime secrets (e.g., `DATABASE_URL`) are mounted
 from Secret Manager at deploy time — create the secret once with
 `gcloud secrets create database-url --data-file=-`.
@@ -125,7 +128,8 @@ Comments the preview URL on the PR.
 When Neon is configured, the workflow:
 
 1. Creates a Neon branch named `pr-{N}` off `main` (via `neondatabase/create-branch-action@v5`)
-2. Builds the container image with `NEXT_PUBLIC_*` baked in
+2. Runs `alembic upgrade head` against the Neon branch database
+3. Builds the container image (no build args required)
 3. Pushes the image to Artifact Registry with tag `pr-{N}-{sha}`
 4. Deploys to Cloud Run as a tagged revision (`--tag=pr-{N} --no-traffic`)
 5. Overrides `DATABASE_URL` with the Neon branch pooled URL for this revision only
@@ -176,13 +180,26 @@ revision history.
 ## Database Migrations
 
 Migrations run as part of the Neon branch creation flow. If you use
-Neon's migration runner or your own (e.g., `node-pg-migrate`, Prisma
-Migrate, Drizzle Kit), run them after the branch is created but before
-deploying.
+Alembic is the migration runner in this template. Migrations live in
+`alembic/versions/` and are applied via `uv run alembic upgrade head`.
 
-For production migrations, run them from a one-off job before the
-`gcloud run deploy` step in `deploy.yml`, or use Neon's point-in-time
-restore if something goes wrong.
+- **Production:** `deploy.yml` runs migrations against
+  `PRODUCTION_DATABASE_URL` (a secret pointing at the Neon main branch)
+  before building and deploying the container.
+- **PR previews:** `preview-deploy.yml` runs migrations against the
+  freshly-created Neon branch database before deploying the preview.
+- **Rollback:** Alembic migrations are forward-only by default. For
+  destructive changes, use a two-step deploy (see pattern #15 in
+  `docs/PATTERN-LIBRARY.md`) or Neon's point-in-time restore.
+
+To create a new migration:
+
+```bash
+uv run alembic revision --autogenerate -m "add user table"
+```
+
+Review the generated file in `alembic/versions/` before committing.
+Autogeneration is a starting point, not a final answer.
 
 ## Troubleshooting
 
@@ -191,10 +208,10 @@ restore if something goes wrong.
 | Failure | Cause | Fix |
 |---------|-------|-----|
 | `lint` fails | Markdown formatting issues | Run `markdownlint --fix **/*.md` |
-| `node` lint fails | ESLint violations | Run `npm run lint` locally, then `npx eslint . --fix` |
-| `node` typecheck fails | TypeScript errors | Run `npm run typecheck` and fix reported errors |
-| `node` test fails | Vitest failures | Run `npm test` locally |
-| `node` build fails | Next.js build error | Run `npm run build` locally and check output |
+| `python` lint fails | Ruff violations | Run `uv run ruff check . --fix` locally |
+| `python` typecheck fails | mypy errors | Run `uv run mypy app/` locally |
+| `python` test fails | Pytest failures | Run `uv run pytest` locally |
+| `python` coverage too low | Coverage < 80% | Add tests or lower `COVERAGE_THRESHOLD` |
 | `python` lint fails | Ruff violations | Run `uv run ruff check . --fix` |
 | `python` tests fail | Test failures or coverage below threshold | Fix tests or lower `COVERAGE_THRESHOLD` |
 | `lint-agent-policies` fails | Agent file missing safety phrases | Check `scripts/verify-agent-restrictions.sh` output |
@@ -214,7 +231,7 @@ role. See pattern #14 in `docs/PATTERN-LIBRARY.md`.
 
 ### Preview URL Returns 404 / Service Unavailable
 
-Most likely `HOSTNAME=0.0.0.0` is missing from the Dockerfile. See pattern
+Most likely `--host 0.0.0.0` is missing from the uvicorn command in the Dockerfile. See pattern
 #1 in `docs/PATTERN-LIBRARY.md`. Cloud Run cannot reach a container bound
 to localhost.
 
