@@ -219,56 +219,72 @@ there is no linked issue:
 - Create PRs without moving ticket to "In Review" (when a ticket is linked)
 - Work on multiple tickets simultaneously (one at a time)
 
-## Stack Guardrails (Render + Supabase)
+## Stack Guardrails (GCP Cloud Run + Neon)
 
 Before implementing any of the following, read `docs/PATTERN-LIBRARY.md` for
 known pitfalls and working code samples:
-- Supabase auth (magic links, redirects, callbacks)
-- Render deployment config (render.yaml, env vars, preview environments)
-- GitHub Actions workflows (reusable workflows, secret gating)
-- next.config.ts changes (output mode, rewrites, redirects)
+- Cloud Run deployment (Dockerfile, env vars, revisions, tagged previews)
+- Neon branching (PR branches, pooled connections, cold starts)
+- GitHub Actions workflows (Workload Identity Federation, reusable workflows)
+- next.config.ts changes (standalone output, NEXT_PUBLIC_* baking)
 
-The 5 most dangerous silent failures are listed below. All return success
-signals while doing the wrong thing.
+The most dangerous silent failures on this stack are listed below. All return
+success signals while doing the wrong thing.
 
-1. **Supabase JWT ref routing.** Supabase routes requests by the `ref` claim
-   in the API key JWT, NOT by the URL. Changing `SUPABASE_URL` to a branch URL
-   while keeping production keys silently routes to production. You must update
-   ALL THREE variables (`SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY`)
-   with branch-specific values. The `service_role_key` must be fetched from the
-   Supabase Management API — the standard GitHub Action only returns `anon_key`.
+1. **Cloud Run container bound to localhost.** Next.js binds to `localhost`
+   by default. Cloud Run routes traffic via a proxy that cannot reach
+   localhost, and the container fails health checks with "starting but not
+   ready" — no useful error. The Dockerfile MUST set `HOSTNAME=0.0.0.0` and
+   `PORT=8080`. This works correctly in local `docker run` if you publish
+   the port, so you only notice it on deploy.
 
-2. **Render env var updates require redeploy.** The Render API returns 200 when
-   you update an environment variable, and the dashboard shows the new value,
-   but the running container never sees it. Always trigger a redeploy after
-   updating env vars via API.
+2. **`NEXT_PUBLIC_*` vars baked at build time.** Any env var prefixed with
+   `NEXT_PUBLIC_` is inlined into the client JavaScript bundle by `next build`.
+   Setting it at Cloud Run deploy time (`--set-env-vars`) has NO effect on
+   the client bundle — the browser will see an empty string. These vars must
+   be passed as `--build-arg` to `docker build`. Server-only vars work
+   normally at runtime. No error is thrown; the value is just silently empty.
 
-3. **Auth `site_url` is base URL only.** When configuring Supabase auth for
-   preview environments, `site_url` must be the base URL (e.g.,
-   `https://app-pr-42.onrender.com`), NOT the callback path. Put callback
-   paths in `uri_allow_list` instead. The callback path differs by framework:
-   Next.js uses `/api/auth/callback`, FastAPI uses `/auth/callback`.
+3. **Cloud Run env var updates create a new revision.** Updating env vars
+   via `gcloud run services update --update-env-vars=...` creates a new
+   revision and routes traffic to it. Updating via the Console without
+   deploying stages the change but never applies it. Always verify with
+   `gcloud run services describe` after an update.
 
-4. **Render reverse proxy headers.** Server-side redirect code must read
+4. **Cloud Run sits behind a proxy.** Server-side redirect code must read
    `X-Forwarded-Host` and `X-Forwarded-Proto` headers to construct the
    external origin. Using `request.url` or `new URL(path, request.url)`
-   returns Render's internal origin (`localhost:10000`), silently breaking
-   redirects. This works correctly in local dev, so you won't catch it until
-   deployment.
+   returns Cloud Run's internal origin, silently breaking redirects. This
+   works correctly in local dev, so you won't catch it until deployment.
 
-5. **Reusable workflows need `workflow_call` trigger.** If a GitHub Actions
+5. **Secret Manager env-var mount captures value at deploy time.** Cloud Run
+   lets you mount secrets two ways: as env vars (`--set-secrets=FOO=foo:latest`)
+   or as files. Env var mounts capture the value of the secret version at
+   deploy time. Rotating the underlying secret does NOT update the running
+   revision — you have to redeploy. For secrets that rotate, mount as a file
+   instead (Cloud Run will pick up new values without a redeploy).
+
+6. **Reusable workflows need `workflow_call` trigger.** If a GitHub Actions
    workflow is called by another workflow via `uses: ./.github/workflows/ci.yml`,
    the called workflow MUST have `workflow_call:` in its `on:` block. Without
    it, GitHub silently shows "0 jobs" with a vague error. This can go undetected
    for weeks.
 
-6. **Magic link auth needs two callback handlers.** Before implementing auth,
-   read Pattern #24 in `docs/PATTERN-LIBRARY.md`. Magic links put tokens in
-   the URL hash fragment (`#access_token=...`) which never reaches the server.
-   You need BOTH `app/api/auth/callback/route.ts` (server-side, for code/PKCE)
-   AND `app/(auth)/auth/callback/page.tsx` (client-side, for hash fragments).
-   Without the client-side page, auth silently fails — the user clicks the
-   magic link, lands on the callback URL, and gets sent back to login.
+7. **Neon cold starts break the first request after idle.** Neon compute
+   scales to zero after ~5 minutes of inactivity. The first query after
+   suspend takes 500ms-2s while the compute instance wakes up. From Cloud Run
+   this looks like "my app is slow the first time," and if the app uses a
+   short connection timeout, queries fail outright. Use Neon's pooled
+   connection string (`db_url_pooled`) from Cloud Run — it handles wake-up
+   and connection reuse. Never use the direct connection string from a
+   serverless app.
+
+8. **Artifact Registry, not Container Registry.** Older GCP docs reference
+   `gcr.io/PROJECT/image` — Container Registry is deprecated. New Cloud Run
+   deploys must use Artifact Registry:
+   `REGION-docker.pkg.dev/PROJECT/REPO/image`. An image pushed to `gcr.io`
+   will work for a while, then silently stop pulling once the deprecation
+   window closes. Always use the Artifact Registry path.
 
 ## Decision-Making Framework
 
