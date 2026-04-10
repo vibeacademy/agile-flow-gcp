@@ -68,19 +68,35 @@ jobs:
         if: steps.check_secrets.outputs.skip != 'true'
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
+      # Set up uv and Python so we can run Alembic migrations against the
+      # production Neon database before the new revision takes traffic.
+      # This ensures the new image never talks to an outdated schema.
+      - name: Install uv
+        if: steps.check_secrets.outputs.skip != 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.x"
+
+      - name: Run Alembic migrations
+        if: steps.check_secrets.outputs.skip != 'true'
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "PRODUCTION_DATABASE_URL not configured — skipping migrations."
+            echo "Set this secret to the Neon main branch pooled URL if you want"
+            echo "the workflow to run migrations before each deploy."
+            exit 0
+          fi
+          uv sync --frozen
+          uv run alembic upgrade head
+
       - name: Build and push container
         if: steps.check_secrets.outputs.skip != 'true'
         id: build
         run: |
           IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
-
-          # NEXT_PUBLIC_* vars must be passed as --build-arg (baked into the
-          # client bundle at build time). Add more --build-arg lines as needed.
-          docker build \
-            --build-arg NEXT_PUBLIC_APP_URL="${{ vars.NEXT_PUBLIC_APP_URL }}" \
-            -t "$IMAGE" \
-            .
-
+          docker build -t "$IMAGE" .
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
@@ -91,8 +107,6 @@ jobs:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.GCP_REGION }}
           image: ${{ steps.build.outputs.image }}
-          # Runtime env vars (NOT NEXT_PUBLIC_*, those were baked in at build time).
-          # Map secrets to env vars via `--set-secrets` below for sensitive values.
           flags: |
             --port=8080
             --memory=512Mi
@@ -101,10 +115,10 @@ jobs:
             --max-instances=10
             --allow-unauthenticated
           env_vars: |
-            NODE_ENV=production
-          # Mount secrets from Secret Manager as env vars. Each secret must
-          # exist in Secret Manager in the same project. DATABASE_URL points
-          # at the production Neon branch.
+            ENVIRONMENT=production
+          # Mount secrets from Secret Manager as env vars. The secret must
+          # exist in Secret Manager in the same project and point at the
+          # production Neon pooled connection string.
           secrets: |
             DATABASE_URL=database-url:latest
 

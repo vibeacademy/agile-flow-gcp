@@ -59,6 +59,22 @@ jobs:
           username: ${{ vars.NEON_DB_USER || 'neondb_owner' }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
+      # ── Apply Alembic migrations to the Neon branch ──────────────────
+
+      - name: Install uv
+        if: steps.check_secrets.outputs.skip != 'true' && steps.neon.outputs.db_url_pooled != ''
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.x"
+
+      - name: Run Alembic migrations against branch database
+        if: steps.check_secrets.outputs.skip != 'true' && steps.neon.outputs.db_url_pooled != ''
+        env:
+          DATABASE_URL: ${{ steps.neon.outputs.db_url_pooled }}
+        run: |
+          uv sync --frozen
+          uv run alembic upgrade head
+
       # ── GCP: auth and build image ─────────────────────────────────────
 
       - name: Authenticate to Google Cloud (Workload Identity Federation)
@@ -82,27 +98,12 @@ jobs:
         if: steps.check_secrets.outputs.skip != 'true'
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
-      # For PR previews, we need the preview URL at build time because
-      # NEXT_PUBLIC_* vars are baked into the client bundle. We compute
-      # the URL from the Cloud Run service URL + tag pattern.
-      #
-      # Cloud Run tagged revisions are reachable at:
-      #   https://pr-{N}---{service}-{hash}.{region}.run.app
-      #
-      # We'll build with a placeholder and accept that NEXT_PUBLIC_APP_URL
-      # will be the production URL in previews. For workshop demos this is
-      # acceptable. For real preview parity, use runtime config instead.
       - name: Build and push preview image
         if: steps.check_secrets.outputs.skip != 'true'
         id: build
         run: |
           IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.SERVICE_NAME }}:pr-${{ env.PR_NUMBER }}-${{ github.event.pull_request.head.sha }}"
-
-          docker build \
-            --build-arg NEXT_PUBLIC_APP_URL="${{ vars.NEXT_PUBLIC_APP_URL }}" \
-            -t "$IMAGE" \
-            .
-
+          docker build -t "$IMAGE" .
           docker push "$IMAGE"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
 
@@ -134,7 +135,7 @@ jobs:
             --min-instances=0 \
             --max-instances=3 \
             --allow-unauthenticated \
-            --set-env-vars="NODE_ENV=production,PR_NUMBER=${{ env.PR_NUMBER }}" \
+            --set-env-vars="ENVIRONMENT=preview,PR_NUMBER=${{ env.PR_NUMBER }}" \
             $NEON_URL_FLAG
 
           # Fetch the tagged revision URL
