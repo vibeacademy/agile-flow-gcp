@@ -1,260 +1,249 @@
-# Ephemeral PR Environments
+# Ephemeral PR Environments: Cloud Run + Neon
 
-Every pull request gets its own isolated preview — a standalone Render
-web service connected to a dedicated Supabase branch database. When the
-PR closes, both are torn down automatically.
+Every pull request in this template gets its own live environment:
+
+- A **Cloud Run revision** tagged with the PR number, reachable at a stable URL
+- A **Neon database branch** forked from `main`, with its own connection string
+- **Zero production traffic** (the preview revision has `--no-traffic`)
+- **Automatic teardown** when the PR closes
+
+This document explains how it works, how to debug it, and how it differs
+from the upstream Agile Flow template's Render + Supabase approach.
 
 ---
 
-## Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Pull Request Opened                          │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │
-              ┌────────────────┴────────────────┐
-              │                                 │
-              ▼                                 ▼
-┌──────────────────────────┐      ┌──────────────────────────────┐
-│   Supabase GitHub        │      │   Render Native Previews     │
-│   Integration            │      │   (previewsEnabled: true)    │
-│                          │      │                              │
-│   Creates branch DB      │      │   Creates preview service    │
-│   automatically via      │      │   automatically from         │
-│   webhook                │      │   render.yaml blueprint      │
-└────────────┬─────────────┘      └──────────────┬───────────────┘
-             │                                    │
-             └────────────────┬───────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                  preview-deploy.yml (GitHub Actions)                │
-│                                                                     │
-│  1. CI checks pass                                                  │
-│  2. Wait for Supabase branch DB (up to 10 min)                      │
-│  3. Fetch branch credentials (URL, anon_key, service_role_key)      │
-│  4. Apply migrations (supabase db push)                             │
-│  5. Configure auth redirect URLs for preview                        │
-│  6. Find Render preview service via API                             │
-│  7. Inject Supabase credentials into Render env vars                │
-│  8. Trigger Render redeploy                                         │
-│  9. Health check (/api/health)                                      │
-│ 10. Post status comment on PR                                       │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                      PREVIEW LIVE                                   │
-│                                                                     │
-│   https://app-pr-{number}.onrender.com                              │
-│          │                                                          │
-│          └──── connected to ────► Supabase branch database          │
-│                                   (isolated Postgres instance)      │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-                        PR merged/closed
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                preview-cleanup.yml (GitHub Actions)                 │
-│                                                                     │
-│   • Deletes Supabase branch DB                                      │
-│   • Render tears down preview service automatically                 │
-└─────────────────────────────────────────────────────────────────────┘
+PR opened/updated
+      |
+      v
+preview-deploy.yml
+      |
+      +-- Create Neon branch: pr-{N}
+      |       (copy-on-write from main, ~1 sec)
+      |
+      +-- Build container image with NEXT_PUBLIC_* baked in
+      |       docker build --build-arg NEXT_PUBLIC_APP_URL=...
+      |
+      +-- Push to Artifact Registry
+      |       us-central1-docker.pkg.dev/PROJECT/REPO/app:pr-N-sha
+      |
+      +-- gcloud run deploy --tag=pr-N --no-traffic
+      |       Creates a tagged revision that receives ZERO production traffic
+      |       but is reachable at https://pr-N---app-hash.region.run.app
+      |
+      +-- Override DATABASE_URL with the Neon branch pooled URL
+      |       (revision-scoped, doesn't affect production revision)
+      |
+      +-- Smoke test /api/health
+      |
+      +-- Post PR comment with preview URL
+
+
+PR closed/merged
+      |
+      v
+preview-cleanup.yml
+      |
+      +-- Delete Neon branch pr-{N}
+      |       (storage released, no more compute cost)
+      |
+      +-- Remove Cloud Run revision tag pr-{N}
+      |       (revision stays in history, costs nothing on scale-to-zero)
 ```
 
 ---
 
-## What Creates What
+## Why Revision Tagging, Not Per-PR Services?
 
-| Resource | Created By | Destroyed By |
-|----------|-----------|--------------|
-| Render preview service | Render (native, via `previewsEnabled: true` in `render.yaml`) | Render (automatic on PR close) |
-| Supabase branch database | Supabase GitHub integration (webhook) | `preview-cleanup.yml` via `supabase branches delete` |
-| Env var wiring between them | `preview-deploy.yml` (GitHub Actions) | N/A (destroyed with service) |
+A naive approach would create a new Cloud Run service per PR (`app-pr-42`).
+This has problems:
+
+- Cloud Run's quota is 1000 services per region. A busy project can hit this.
+- Each service needs its own IAM setup, secret mounts, and custom domain config.
+- Cleanup requires deleting services, which is slow and lossy (log history is discarded).
+- Secret rotation has to happen across every preview service.
+
+**Revision tagging** solves all of these:
+
+- One service, many revisions. All PRs share the service's IAM and secret setup.
+- Tags are lightweight — create and delete instantly via `gcloud run services update-traffic`.
+- Inactive revisions cost nothing on scale-to-zero, so leaving them around is free.
+- Revision history is the audit trail. No data loss when a "preview" is cleaned up.
+
+The tradeoff: revision tagging means all PR previews share the service's
+**base configuration** (CPU, memory, scaling limits). You can't give one
+PR more memory than another. For this template's use case (Next.js web apps
+that all look similar), this is fine.
 
 ---
 
-## Required Secrets
+## Why Neon, Not Cloud SQL?
 
-Configure these in **Repository Settings > Secrets and variables > Actions**:
+Cloud SQL does not support fast database branching. Creating a Cloud SQL
+clone takes 5-10 minutes per branch and the clone is a separate instance
+with its own billing. This is incompatible with "one database per PR."
+
+**Neon** offers copy-on-write branching in ~1 second with zero storage cost
+until you write. Its serverless compute model scales to zero between
+queries, so an idle PR branch costs nothing. The tradeoff is a 500ms-2s
+cold start on the first query after idle — acceptable for preview traffic,
+annoying for production.
+
+For production, you have two options:
+
+- **Stay on Neon** with `--min-instances=1` or autosuspend disabled to
+  eliminate cold starts. ~$5-10/month per always-on compute.
+- **Use Cloud SQL or AlloyDB for production**, Neon for PR previews. More
+  complex but gives you Google-native observability for prod.
+
+This template assumes Neon for both. Switch if your scale requires it.
+
+---
+
+## The Preview URL Pattern
+
+Cloud Run generates preview URLs with a literal `---` separator:
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     GitHub Repository Secrets                       │
-├─────────────────────────────┬───────────────────────────────────────┤
-│  RENDER_API_KEY             │  Render Dashboard > Account Settings  │
-│                             │  > API Keys                           │
-├─────────────────────────────┼───────────────────────────────────────┤
-│  RENDER_SERVICE_ID          │  Render Dashboard > Service >         │
-│                             │  Settings (srv-xxxxx in URL)          │
-├─────────────────────────────┼───────────────────────────────────────┤
-│  SUPABASE_ACCESS_TOKEN      │  Supabase Dashboard > Account >       │ 
-│                             │  Access Tokens                        │
-├─────────────────────────────┼───────────────────────────────────────┤
-│  SUPABASE_PROJECT_REF       │  Supabase Dashboard > Project         │
-│                             │  Settings > General (Reference ID).   │
-│                             │  Use the project where the GitHub     │
-│                             │  integration is installed (the one    │
-│                             │  that creates branch databases on     │
-│                             │  PR). Typically production, NOT       │
-│                             │  staging.                             │
-├─────────────────────────────┼───────────────────────────────────────┤
-│  SUPABASE_DB_URL (optional) │  Supabase Dashboard > Project         │
-│                             │  Settings > Database > Connection     │
-│                             │  string (production migrations only)  │
-└─────────────────────────────┴───────────────────────────────────────┘
+https://pr-42---my-app-abc123.us-central1.run.app
 ```
 
-### Which secrets are used where
+- `pr-42` — the revision tag
+- `my-app-abc123` — the base service hostname (stable)
+- `us-central1.run.app` — Cloud Run's regional DNS
 
-```
-preview-deploy.yml ──── RENDER_API_KEY
-                   ──── RENDER_SERVICE_ID
-                   ──── SUPABASE_ACCESS_TOKEN
-                   ──── SUPABASE_PROJECT_REF
-
-preview-cleanup.yml ─── SUPABASE_ACCESS_TOKEN
-                    ─── SUPABASE_PROJECT_REF
-
-deploy.yml (prod) ───── RENDER_API_KEY
-                  ───── RENDER_SERVICE_ID
-                  ───── SUPABASE_DB_URL
-```
+The URL is stable for the life of the tag — it doesn't change when you
+push new commits to the PR (the tag points at the latest revision). You
+can bookmark it, share it, and link to it from the PR comment.
 
 ---
 
-## Detailed Flow: PR Opened
+## Known Limitations
 
-### Step 1 — Native platforms create resources
+### NEXT_PUBLIC_* Vars Have the Production URL
 
-Two things happen in parallel, triggered by the PR branch push:
+The container image is built with `NEXT_PUBLIC_APP_URL` set to the
+**production** URL, because that's what the GitHub Actions variable
+contains. Preview deployments use the same image, so client-side code
+reading `process.env.NEXT_PUBLIC_APP_URL` sees the production value, not
+the preview URL.
 
-**Render** reads `render.yaml`, sees `previewsEnabled: true`, and spins
-up a preview service named `{base-service}-pr-{number}`.
+**Workaround:** For anything that needs the origin, use server-side header
+reading instead of `NEXT_PUBLIC_*`. See pattern #23 in
+`docs/PATTERN-LIBRARY.md`.
 
-**Supabase** GitHub integration (configured in Supabase Dashboard >
-Settings > Integrations > GitHub) detects the new branch and creates an
-isolated Postgres database with its own API endpoint, `anon_key`, and
-`service_role_key`.
+**Alternative:** Rebuild the image per PR with the preview URL. Doubles
+build time and complicates caching. Not worth it for most apps.
 
-### Step 2 — GitHub Actions orchestrates the wiring
+### Cold Start on First Request
 
-`preview-deploy.yml` runs on `pull_request: [opened, synchronize, reopened]`:
+Preview revisions use `--min-instances=0`. The first request after a few
+minutes of idle takes 2-5 seconds (Cloud Run container start) plus
+500ms-2s (Neon compute wakeup). Smoke tests in `preview-deploy.yml`
+retry for 60 seconds to handle this.
 
-1. **CI checks** — lint, type-check, tests must pass first.
+### One Neon Free Tier Project Per Account
 
-2. **Wait for Supabase branch** — uses `0xbigboss/supabase-branch-gh-action@v1`
-   which polls the Supabase Management API until the branch DB is ready
-   (up to 10 minutes).
+Neon's free tier allows 10 branches per project. For a team with more
+than ~10 concurrent PRs, you'll hit the branch limit. Options:
 
-3. **Fetch credentials** — extracts `api_url` and `anon_key` from the
-   action output. Calls the Supabase Management API directly to fetch
-   `service_role_key` (the action only returns `anon_key`).
+- Upgrade to the Launch tier ($19/month, 5000 branches).
+- Delete stale branches more aggressively (the cleanup workflow only
+  handles closed PRs).
 
-4. **Apply migrations** — runs `supabase link --project-ref $BRANCH_REF`
-   then `supabase db push` to apply all `supabase/migrations/*.sql`
-   files to the branch database.
+### Preview Revisions Don't Auto-Clean on Quota Pressure
 
-5. **Configure auth** — updates the branch's auth redirect URLs to allow
-   `https://app-pr-{number}.onrender.com/**` via the Management API.
+Cloud Run accumulates revisions forever until it hits the 1000-per-service
+limit. The cleanup workflow removes **tags** but leaves revisions. After
+a few months on a busy project, you may want to manually prune old
+revisions:
 
-6. **Find Render preview** — queries the Render API, searching for a
-   service whose name matches `pr-{number}`. Polls up to 60 times
-   (10-second intervals).
-
-7. **Inject env vars** — PUTs the Supabase branch credentials into the
-   Render preview service:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-
-8. **Redeploy** — triggers a Render redeploy so the preview picks up
-   the new credentials.
-
-9. **Health check** — GETs `/api/health` on the preview URL, retrying
-   up to 15 times.
-
-10. **PR comment** — posts (or updates) a status table on the PR with
-    links and pass/fail for each step.
-
-### Step 3 — Preview is live
-
-The preview app at `https://app-pr-{number}.onrender.com` is fully
-functional with its own database. Data changes are isolated from
-production and other PRs.
-
----
-
-## Detailed Flow: PR Closed
-
-`preview-cleanup.yml` runs on `pull_request: [closed]`:
-
-1. **Delete Supabase branch** — runs
-   `supabase --experimental branches delete "$BRANCH_NAME" --yes`.
-   Continues on error (the branch may already be gone).
-
-2. **Render cleanup** — Render automatically tears down the preview
-   service. No API call needed.
-
----
-
-## Detailed Flow: PR Merged (Production)
-
-`deploy.yml` runs on `push` to `main`:
-
-1. Deploys to the production Render service.
-2. If `supabase/migrations/` exists and `SUPABASE_DB_URL` is configured,
-   runs `npx supabase db push --db-url "$SUPABASE_DB_URL"` to apply
-   migrations to production.
-
----
-
-## Graceful Degradation
-
-The system works even with partial configuration:
-
-| Missing Secret | Behavior |
-|---------------|----------|
-| `SUPABASE_ACCESS_TOKEN` | Supabase steps skipped; preview uses production DB (or no DB) |
-| `SUPABASE_PROJECT_REF` | Same as above |
-| `RENDER_API_KEY` | Workflow skipped entirely |
-| `RENDER_SERVICE_ID` | Workflow skipped entirely |
-| `SUPABASE_DB_URL` | Production migrations skipped; preview flow unaffected |
-
----
-
-## Troubleshooting
-
-### PostgREST schema cache not refreshed
-
-If you apply DDL changes to a branch database outside of `supabase db push`
-(e.g., via the Management API or a direct SQL connection), PostgREST may
-continue serving the old schema. Reload the cache by running this SQL
-against the branch database:
-
-```sql
-NOTIFY pgrst, 'reload schema';
+```bash
+gcloud run revisions list --service=my-app --region=us-central1 --limit=200 \
+  | awk 'NR>1 && !/True/ {print $2}' \
+  | xargs -I {} gcloud run revisions delete {} --region=us-central1 --quiet
 ```
 
-The standard `supabase db push` migration flow handles this automatically.
-
-### Wrong `SUPABASE_PROJECT_REF`
-
-If your preview environment silently falls back to production data instead
-of using an isolated branch database, check that `SUPABASE_PROJECT_REF`
-points to the project where the Supabase GitHub integration is installed.
-Users with multiple Supabase projects (staging + production) commonly set
-this to the wrong one. See the [Required Secrets](#required-secrets) table
-above.
+(Only deletes inactive revisions — the active one is protected.)
 
 ---
 
-## Key Technical Detail: JWT Routing
+## Debugging a Broken Preview
 
-Supabase routes API requests based on the `ref` claim in the JWT, not
-the URL. This is why the workflow must fetch both `anon_key` and
-`service_role_key` from the Supabase Management API for the specific
-branch — using production keys against a branch URL would still route
-to the production database.
+**Preview URL returns 404 / Service Unavailable:**
+
+1. Check the Cloud Run service has the tag: `gcloud run services describe
+   my-app --region=us-central1 --format='value(status.traffic[].tag)'`
+2. If the tag exists, check the revision status: `gcloud run revisions
+   describe REVISION_NAME --region=us-central1`
+3. If the revision failed, check the container logs: `gcloud logging read
+   'resource.type="cloud_run_revision" AND resource.labels.revision_name="REVISION_NAME"'`
+
+**Most common cause:** missing `HOSTNAME=0.0.0.0` in the Dockerfile. See
+pattern #1 in `docs/PATTERN-LIBRARY.md`.
+
+**Preview URL works but database queries fail:**
+
+1. Check the Neon branch exists: `neonctl branches list`
+2. Check the pooled connection string was passed:
+   `gcloud run revisions describe REVISION_NAME --region=us-central1 --format=yaml | grep DATABASE_URL`
+3. The URL should end in `-pooler.region.aws.neon.tech`. If it doesn't,
+   you're using the direct URL and will exhaust connections. See
+   pattern #9.
+
+**Preview URL takes 10+ seconds on first load:**
+
+This is the expected cold start behavior. Cloud Run + Neon both scale to
+zero. First request warms everything up. Second request is fast.
+
+If you need faster cold starts for a specific PR demo, temporarily bump
+`--min-instances=1` on the preview revision:
+
+```bash
+gcloud run services update my-app \
+  --region=us-central1 \
+  --min-instances=1
+```
+
+Reset to 0 after the demo.
+
+---
+
+## Cost
+
+For typical workshop / small-team usage:
+
+| Resource | Cost per preview | Cost per month (10 PRs) |
+|----------|------------------|------------------------|
+| Cloud Run preview revisions | $0 (scale-to-zero) | $0 |
+| Artifact Registry storage | ~$0.01 per image | ~$0.10 |
+| Neon branch storage | $0 (free tier) | $0 |
+| Neon compute hours | $0 (free tier) | $0 |
+
+Expected: **under $1/month** for most projects.
+
+Budget cap recommendation: $25/month on the GCP project, with alerts at
+50% and 90%. Covers runaway agent loops without breaking the bank.
+
+---
+
+## Comparison to Upstream Agile Flow (Render + Supabase)
+
+| Feature | Upstream (Render + Supabase) | This fork (GCP + Neon) |
+|---------|------------------------------|----------------------|
+| Preview compute | Render preview services (one per PR) | Cloud Run tagged revisions (shared service) |
+| Preview DB | Supabase branches | Neon branches |
+| Preview URL | `https://app-pr-42.onrender.com` | `https://pr-42---app-xyz.run.app` |
+| Cold start | 30-60 sec (Render free tier spin-up) | 2-5 sec (Cloud Run) + 0.5-2 sec (Neon) |
+| Cleanup | Render auto-deletes on PR close | Cleanup workflow removes tag + Neon branch |
+| Service proliferation | One service per PR | One service, many tags |
+| Secret management | Render env vars API (silent redeploy required) | Secret Manager (deploy-time mount) |
+
+The GCP version has faster cold starts, cleaner service management, and
+avoids Render's notorious env-var-requires-redeploy gotcha. The Render
+version has simpler preview URL formatting and zero Dockerfile ownership.
+
+Pick based on what your team already knows. For GCP-native teams, this
+fork is the better starting point.

@@ -1,325 +1,295 @@
-# Platform Guide
+# Platform Guide: GCP Cloud Run + Neon
 
-Agile Flow supports multiple deployment platforms. Your choice is stored
-in `.claude/PROJECT.md` and read by the `devops-engineer` and
-`system-architect` agents.
+This template is configured for **Google Cloud Platform**. The app deploys
+to Cloud Run as a container, using Artifact Registry for image storage,
+Secret Manager for runtime secrets, and Neon for Postgres with per-PR
+branching.
 
-## Supported Platforms
+If you need to adapt the template to a different platform, the upstream
+`vibeacademy/agile-flow` repo supports Render, Vercel, Cloudflare, and
+others. This fork is GCP-only by design.
 
-| Platform | Best For | Free Tier | Preview Envs |
-|----------|----------|-----------|-------------|
-| Render | Full-stack web apps, APIs | Yes | Yes (built-in) |
-| Cloudflare | Edge computing, static sites | Yes | Yes (Workers) |
-| Vercel | Frontend apps, Next.js | Yes | Yes (automatic) |
-| Railway | Containers, databases | Trial | Yes |
-| Fly.io | Global edge containers | Yes | Manual |
+---
 
-## Default: Render
+## The Stack
 
-This template ships configured for Render:
+| Layer | Service |
+|-------|---------|
+| Compute | Cloud Run |
+| Image registry | Artifact Registry |
+| Secrets | Secret Manager |
+| Database | Neon (serverless Postgres, per-PR branching) |
+| CI/CD | GitHub Actions |
+| Auth (GCP side) | Workload Identity Federation (preferred) or service account key (fallback) |
 
-- `render.yaml` defines the service with preview environments enabled
-- `deploy.yml` deploys to Render on merge to main
-- `preview-deploy.yml` manages Render preview environments
-- `rollback-production.yml` rolls back via Render API
+See `docs/PATTERN-LIBRARY.md` for known pitfalls on this stack.
 
-## Choosing Your Platform
+---
 
-Run `/bootstrap-architecture` to select your platform. The choice is
-written to `.claude/PROJECT.md`:
+## First-Time Setup
 
-```markdown
-## Platform
-- **Hosting**: render
-- **Selected**: 2026-02-17
-```
+Follow these steps in order. Most of them are one-time and can be
+automated (see `scripts/provision-gcp-project.sh`).
 
-## Switching Platforms
-
-To switch platforms after initial setup:
-
-1. Update `.claude/PROJECT.md` with the new platform
-2. Replace the platform-specific workflow files:
-   - `deploy.yml` -- production deployment
-   - `preview-deploy.yml` -- PR preview environments
-   - `preview-cleanup.yml` -- cleanup on PR close
-3. Update `render.yaml` / `vercel.json` / `fly.toml` as needed
-4. Update repository secrets in GitHub Settings
-
-## Platform-Specific Setup
-
-### Render
-
-Render is the default deployment platform for this template. This section
-walks through the full setup from zero to production.
-
-#### Step 1: Push Your Code First
-
-Render needs code in your repository to build. Make sure you have at least
-one commit on `main` before creating the service:
+### Step 1: Create a GCP Project
 
 ```bash
-git add -A
-git commit -m "Initialize project"
-git push -u origin main
+gcloud projects create YOUR_PROJECT_ID --name="Your Project Name"
+gcloud config set project YOUR_PROJECT_ID
 ```
 
-#### Step 2: Create a Web Service
-
-For first-time users, **manual setup** is simpler than the Blueprint
-(Infrastructure as Code) approach.
-
-1. Go to <https://dashboard.render.com> and sign in.
-2. Click **New > Web Service**.
-3. Connect your GitHub repository.
-4. Configure:
-   - **Name**: your-project-name
-   - **Region**: closest to your users
-   - **Branch**: `main`
-   - **Build Command**: see `render.yaml` (e.g., `npm install && npm run build`)
-   - **Start Command**: see `render.yaml` (e.g., `npm start`)
-   - **Instance Type**: Free (for getting started)
-5. Click **Create Web Service**.
-
-#### Step 3: Environment Variables
-
-Add environment variables in Render Dashboard > your service > Environment:
-
-| Variable | When to Add | Where to Get It |
-|----------|-------------|-----------------|
-| `SENTRY_DSN` | After creating a Sentry project | Sentry > Project Settings > Client Keys |
-| `DATABASE_URL` | After linking a database | Render provides this automatically (see below) |
-| `NODE_ENV` | At creation | Set to `production` |
-
-**DATABASE_URL**: When you create a PostgreSQL database on Render and link
-it to your service, Render automatically injects `DATABASE_URL` as an
-environment variable. You do NOT need to copy/paste it manually.
-
-To create a database:
-1. Render Dashboard > **New > PostgreSQL**
-2. Choose a name and plan (Free tier available)
-3. Go to your Web Service > **Environment > Add Environment Group**
-4. Link the database — `DATABASE_URL` is injected automatically
-
-#### Step 4: GitHub Secrets for CI/CD
-
-The GitHub Actions workflows need two secrets to deploy and manage preview
-environments:
-
-| Secret | Where to Find |
-|--------|--------------|
-| `RENDER_API_KEY` | Render Dashboard > Account Settings > API Keys |
-| `RENDER_SERVICE_ID` | Render Dashboard > Your Service > Settings (in the URL: `https://dashboard.render.com/web/srv-xxxxx`, the `srv-xxxxx` part) |
-
-Add these in GitHub: Repository > Settings > Secrets and variables >
-Actions > New repository secret.
-
-#### Blueprint vs Manual Setup
-
-| | Blueprint (`render.yaml`) | Manual Setup |
-|---|---|---|
-| **How** | Render reads `render.yaml` from your repo | Configure via Render Dashboard UI |
-| **Best for** | Teams, reproducible infra | First-time setup, learning |
-| **Preview envs** | Automatic via `render.yaml` | Must configure manually |
-| **Database** | Declared in YAML | Created separately in Dashboard |
-
-The template ships a `render.yaml` file. Once you are comfortable, you can
-switch to Blueprint mode: Render Dashboard > Blueprints > New Blueprint
-Instance > connect your repo.
-
-#### Common Gotchas
-
-1. **First deploy fails**: Render cannot build if there is no code on the
-   branch. Push at least one commit to `main` before creating the service.
-2. **Free tier spin-down**: Free-tier services spin down after 15 minutes
-   of inactivity. The first request after spin-down takes 30-60 seconds.
-   This is normal.
-3. **Preview environments**: Preview deploys are triggered by the
-   `preview-deploy.yml` GitHub Action when a PR is opened. They require
-   `RENDER_API_KEY` to be set in GitHub Secrets.
-4. **Build cache**: If a build fails after changing stacks (e.g., Python
-   to Node.js), clear the build cache: Service > Settings > Clear Build
-   Cache, then trigger a manual deploy.
-
-**Configuration file:** `render.yaml`
-
-### Cloudflare
-
-**Required secrets:**
-
-| Secret | Where to Find |
-|--------|--------------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare Dashboard > Profile > API Tokens |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Dashboard > Overview (sidebar) |
-
-**Configuration file:** `wrangler.toml`
-
-### Vercel
-
-**Required secrets:**
-
-| Secret | Where to Find |
-|--------|--------------|
-| `VERCEL_TOKEN` | Vercel Dashboard > Settings > Tokens |
-| `VERCEL_ORG_ID` | Vercel Dashboard > Settings > General |
-| `VERCEL_PROJECT_ID` | Vercel Dashboard > Project > Settings |
-
-**Configuration file:** `vercel.json`
-
-### Railway
-
-**Required secrets:**
-
-| Secret | Where to Find |
-|--------|--------------|
-| `RAILWAY_TOKEN` | Railway Dashboard > Account > Tokens |
-
-**Configuration file:** `railway.toml`
-
-### Fly.io
-
-**Required secrets:**
-
-| Secret | Where to Find |
-|--------|--------------|
-| `FLY_API_TOKEN` | `fly tokens create deploy` |
-
-**Configuration file:** `fly.toml`
-
-## Database: Supabase (Recommended)
-
-Supabase is the recommended database for Agile Flow projects. Its native
-**branching** feature creates an isolated Postgres instance for each PR —
-migrations auto-applied, data fully isolated between PRs. Render's managed
-Postgres cannot do this (all preview environments share the same database).
-
-### Why Supabase
-
-- **Ephemeral PR databases** — each PR gets its own Postgres via Supabase
-  branching, with no shared state between previews
-- **Automatic migrations** — `supabase/migrations/*.sql` files are applied
-  to branch databases during preview deploy
-- **Credential injection** — `preview-deploy.yml` fetches branch-specific
-  `SUPABASE_URL`, `SUPABASE_KEY`, and `SUPABASE_SERVICE_KEY` and injects
-  them into the Render preview service
-- **Branch cleanup** — `preview-cleanup.yml` deletes the Supabase branch
-  when the PR is closed
-
-### Setup
-
-1. **Create a Supabase project** at [supabase.com](https://supabase.com)
-2. **Enable the GitHub integration** in Supabase Dashboard > Settings >
-   Integrations > GitHub to enable automatic branch creation on PRs
-3. **Add GitHub secrets** to your repository:
-
-| Secret | Where to Find |
-|--------|--------------|
-| `SUPABASE_ACCESS_TOKEN` | Supabase Dashboard > Account > Access Tokens |
-| `SUPABASE_PROJECT_REF` | Supabase Dashboard > Project Settings > General (the `Reference ID`). Use the project where the GitHub integration is installed (creates branch DBs on PR) -- typically production, NOT staging. |
-
-1. **For production deploys**, also add:
-
-| Secret | Where to Find |
-|--------|--------------|
-| `SUPABASE_DB_URL` | Supabase Dashboard > Project Settings > Database > Connection string |
-
-### How the PR Lifecycle Works
-
-```
-PR opened
-  -> Supabase GitHub integration creates a branch database
-  -> preview-deploy.yml waits for the branch, fetches credentials
-  -> Credentials (URL, anon_key, service_role_key) injected into Render preview
-  -> Migrations applied via `supabase db push`
-  -> Render preview redeployed with branch database credentials
-
-PR closed
-  -> preview-cleanup.yml deletes the Supabase branch
-  -> Render cleans up the preview service automatically
-```
-
-### Environment Variables
-
-Your application should read these environment variables for Supabase:
-
-| Variable | Description |
-|----------|-------------|
-| `SUPABASE_URL` | Supabase project URL (branch URL in previews) |
-| `SUPABASE_KEY` | Supabase anon key (public, safe for client-side) |
-| `SUPABASE_SERVICE_KEY` | Supabase service_role key (server-side only) |
-
-### Important: JWT Ref Routing
-
-Supabase routes requests based on the JWT `ref` claim, not the URL. The
-GitHub Action (`0xbigboss/supabase-branch-gh-action`) only returns the
-`anon_key`. The `preview-deploy.yml` workflow fetches both `anon_key` and
-`service_role_key` from the Supabase Management API to ensure correct
-routing to the branch database.
-
-## Error Monitoring
-
-The app ships with zero-config error telemetry — errors are captured and
-turned into GitHub issues automatically. For a full monitoring dashboard,
-you can connect an external service.
-
-### Default: Self-Receiver (Zero Config)
-
-No setup required. The app's built-in `/api/error-events` endpoint receives
-errors from the Sentry SDK and creates GitHub issues labeled `bug:auto`.
-See `docs/SENTRY-SETUP.md` for details.
-
-### Optional: GlitchTip (Self-Hosted)
-
-[GlitchTip](https://glitchtip.com) is an open-source, Sentry-compatible
-error tracker. It uses the same Sentry SDK — just change the DSN.
-
-**Why GlitchTip over Sentry SaaS:**
-
-| Factor | GlitchTip | Sentry SaaS |
-|--------|-----------|-------------|
-| Cost | Render resources (~$14-25/mo) | Free tier, then scales |
-| Privacy | 100% self-hosted | Third-party data processing |
-| Maintenance | You manage updates | Zero maintenance |
-| Features | Error tracking, basic APM, uptime | Full observability platform |
-
-**Render deployment (3 services):**
-
-| Service | Type | Purpose |
-|---------|------|---------|
-| glitchtip-web | Docker | Django backend + Angular frontend |
-| glitchtip-worker | Docker | Celery worker for event processing |
-| glitchtip-db | PostgreSQL | Error data and user accounts |
-
-For deployment instructions, see the
-[GlitchTip self-hosted guide](https://glitchtip.com/documentation/install).
-
-**Connecting your app:**
+Link it to a billing account:
 
 ```bash
-# Set SENTRY_DSN to your GlitchTip instance
-# This overrides the default self-receiver
-SENTRY_DSN=https://key@your-glitchtip.onrender.com/1
+gcloud billing projects link YOUR_PROJECT_ID \
+  --billing-account=YOUR_BILLING_ACCOUNT_ID
 ```
 
-Add `SENTRY_DSN` to your Render environment variables. The app will send
-errors to GlitchTip instead of the built-in receiver.
+Without billing, most GCP APIs will return a 403 with no useful error.
 
-### Optional: Sentry SaaS
+### Step 2: Enable Required APIs
 
-[Sentry](https://sentry.io) is the original error tracking platform. The
-free tier includes 5,000 errors per month.
+```bash
+gcloud services enable \
+  run.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  iam.googleapis.com \
+  iamcredentials.googleapis.com \
+  --project=YOUR_PROJECT_ID
+```
 
-**Setup:** See `docs/SENTRY-SETUP.md` for configuration steps.
+API enablement is lazy — the first call to each service can take 30-60
+seconds to warm up. If you see "API has not been used" errors immediately
+after enabling, wait a minute and retry.
 
-**Required secrets:**
+### Step 3: Create an Artifact Registry Repository
 
-| Secret | Where to Find |
-|--------|---------------|
-| `SENTRY_DSN` | Sentry Dashboard > Project > Settings > Client Keys |
+```bash
+gcloud artifacts repositories create agile-flow \
+  --repository-format=docker \
+  --location=us-central1 \
+  --project=YOUR_PROJECT_ID
+```
 
-## Adding a New Platform
+Container images will live at:
+`us-central1-docker.pkg.dev/YOUR_PROJECT_ID/agile-flow/agile-flow-app:TAG`
 
-1. Create deployment workflow in `.github/workflows/`
-2. Add platform detection to `.claude/agents/devops-engineer.md`
-3. Add setup instructions to this guide
-4. Document required secrets in `docs/CI-CD-GUIDE.md`
+**Do not use `gcr.io` paths.** Container Registry is deprecated and new
+projects cannot write to it.
+
+### Step 4: Create a Deployer Service Account
+
+```bash
+gcloud iam service-accounts create deployer \
+  --display-name="GitHub Actions deployer" \
+  --project=YOUR_PROJECT_ID
+
+# Grant permissions to deploy Cloud Run services
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/run.admin"
+
+# Grant permission to push images to Artifact Registry
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/artifactregistry.writer"
+
+# Grant permission to impersonate the runtime service account
+# (Cloud Run needs to run as some identity; default is the Compute SA)
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+
+# Grant access to read Secret Manager secrets at runtime
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+### Step 5: Set Up Workload Identity Federation (Recommended)
+
+Workload Identity Federation lets GitHub Actions authenticate to GCP
+without storing a long-lived service account key. This is the best
+practice and should be your default.
+
+```bash
+# Create the pool
+gcloud iam workload-identity-pools create github \
+  --location="global" \
+  --display-name="GitHub Actions" \
+  --project=YOUR_PROJECT_ID
+
+# Create the provider (trusts GitHub's OIDC tokens)
+gcloud iam workload-identity-pools providers create-oidc github \
+  --workload-identity-pool=github \
+  --location=global \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor" \
+  --attribute-condition="assertion.repository_owner == 'YOUR_GITHUB_ORG'" \
+  --project=YOUR_PROJECT_ID
+
+# Get the project number (different from project ID)
+PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
+
+# Allow the GitHub repo to impersonate the deployer service account
+gcloud iam service-accounts add-iam-policy-binding \
+  "deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/iam.workloadIdentityUser" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/YOUR_GITHUB_ORG/YOUR_REPO" \
+  --project=YOUR_PROJECT_ID
+```
+
+The WIF provider resource name you need for GitHub secrets is:
+
+```
+projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github
+```
+
+### Step 5 (Alternative): Service Account Key (Workshop Shortcut)
+
+If WIF feels like too much setup for your timeline (e.g., for a workshop),
+you can use a service account JSON key instead. This is **not recommended
+for production** — the key is a long-lived credential that can be leaked.
+
+```bash
+gcloud iam service-accounts keys create deployer-key.json \
+  --iam-account="deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --project=YOUR_PROJECT_ID
+```
+
+Paste the contents of `deployer-key.json` into the GitHub secret
+`GCP_SA_KEY`. Delete the local file immediately after.
+
+### Step 6: Create a Neon Account and Project
+
+Sign up at <https://neon.tech>. On the free tier you get one project, 10
+branches, 0.5 GB storage, and ~192 compute hours per month — enough for
+development and small workshops.
+
+Create a Neon project in the same region as your Cloud Run service (e.g.,
+`us-central1` → `us-east-2` is the closest Neon region at the time of
+writing; pick the Neon region closest to your Cloud Run region).
+
+From the Neon Console, grab:
+
+- **Project ID** — for the `NEON_PROJECT_ID` secret
+- **API key** — Settings → API Keys → create one — for the `NEON_API_KEY` secret
+- **Connection string (pooled)** — Dashboard → Connection Details → select
+  "Pooled connection" — this is your `DATABASE_URL` for production
+
+### Step 7: Create a Secret Manager Secret for the Database URL
+
+```bash
+echo -n "postgresql://user:pass@pooled-host/db" | \
+  gcloud secrets create database-url \
+    --data-file=- \
+    --project=YOUR_PROJECT_ID
+```
+
+Use the **pooled** Neon connection string. Cloud Run exhausts direct
+connections fast because every revision instance opens its own pool.
+
+### Step 8: Configure GitHub Secrets and Variables
+
+In your GitHub repo settings (Settings → Secrets and variables → Actions):
+
+**Secrets (encrypted, not visible after save):**
+
+| Name | Value |
+|------|-------|
+| `GCP_PROJECT_ID` | `YOUR_PROJECT_ID` |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | The full WIF provider path from Step 5 |
+| `GCP_SERVICE_ACCOUNT` | `deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com` |
+| `GCP_SA_KEY` | (Only if not using WIF — contents of `deployer-key.json`) |
+| `NEON_API_KEY` | From Neon Console |
+| `NEON_PROJECT_ID` | From Neon Console |
+
+**Variables (plain text, visible):**
+
+| Name | Default | Purpose |
+|------|---------|---------|
+| `GCP_REGION` | `us-central1` | Cloud Run + Artifact Registry region |
+| `ARTIFACT_REPO` | `agile-flow` | Artifact Registry repo name |
+| `CLOUD_RUN_SERVICE` | `agile-flow-app` | Cloud Run service name |
+| `NEXT_PUBLIC_APP_URL` | (your production URL) | Baked into client bundle at build time |
+| `NEON_DB_USER` | `neondb_owner` | Neon database role |
+
+### Step 9: First Deploy
+
+Push to `main` (or trigger the `Deploy to Production` workflow manually
+via `gh workflow run deploy.yml`). Watch the workflow logs. First deploys
+often reveal missing IAM grants — fix and retry.
+
+If the workflow succeeds but the container fails its health check with
+"starting but not ready," the most likely cause is a missing
+`HOSTNAME=0.0.0.0` in the Dockerfile. See `docs/PATTERN-LIBRARY.md`.
+
+---
+
+## Daily Operations
+
+### Viewing Logs
+
+```bash
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="agile-flow-app"' \
+  --project=YOUR_PROJECT_ID \
+  --limit=50 \
+  --format='value(timestamp,textPayload)'
+```
+
+### Rolling Back
+
+Cloud Run keeps every revision. To roll back:
+
+```bash
+# List recent revisions
+gcloud run revisions list \
+  --service=agile-flow-app \
+  --region=us-central1 \
+  --limit=10
+
+# Route 100% of traffic to a specific revision
+gcloud run services update-traffic agile-flow-app \
+  --region=us-central1 \
+  --to-revisions=agile-flow-app-00042-xyz=100
+```
+
+### Updating Runtime Secrets
+
+Runtime secrets are mounted from Secret Manager at deploy time. To rotate:
+
+```bash
+# Add a new secret version
+echo -n "new-value" | gcloud secrets versions add database-url --data-file=-
+
+# Redeploy to pick up the new version
+# (The :latest reference resolves at deploy time, not runtime.)
+gh workflow run deploy.yml
+```
+
+If you need true live rotation without a redeploy, mount the secret as a
+file instead of an env var. See `docs/PATTERN-LIBRARY.md`.
+
+### Monitoring Cost
+
+Cloud Run billing is per-request with a generous free tier (2M
+requests/month, 360k GB-seconds, 180k vCPU-seconds). For a low-traffic
+app, monthly cost is typically under $5.
+
+Set a budget alert in Cloud Console → Billing → Budgets. Alert at 50%
+and 90% of your chosen cap.
+
+---
+
+## Switching Away From GCP
+
+This fork is GCP-specific. If you want to target another platform, fork
+the upstream `vibeacademy/agile-flow` repo instead — it ships with
+Render as the default and documents alternatives for Vercel, Cloudflare,
+Railway, and Fly.io.
+
+Do not try to run this template on another platform without removing the
+GCP-specific workflows and Dockerfile settings. The `HOSTNAME=0.0.0.0`
+binding and standalone output mode are correct for Cloud Run but may need
+adjustment on other targets.
