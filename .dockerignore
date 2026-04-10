@@ -1,9 +1,15 @@
-# Build artifacts
-node_modules
-.next
-out
-dist
-build
+# Python build artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+.venv
 
 # Source control
 .git
@@ -21,16 +27,8 @@ build
 .env.*
 !.env.example
 
-# Tests & dev-only files
-__tests__
-coverage
-.nyc_output
-*.test.ts
-*.test.tsx
-*.spec.ts
-*.spec.tsx
-vitest.config.ts
-vitest.setup.ts
+# Tests & dev-only files (tests run in CI, not in the container)
+tests
 
 # Docs & framework files (not needed at runtime)
 docs
@@ -49,7 +47,8 @@ LICENSE
 .github
 scripts
 
+# Alternate starter references
+starters
+
 # Misc
 *.log
-npm-debug.log*
-starters

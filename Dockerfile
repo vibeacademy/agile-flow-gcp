@@ -1,61 +1,37 @@
 # syntax=docker/dockerfile:1.7
 #
-# Multi-stage Dockerfile for Next.js on Google Cloud Run.
+# FastAPI on Google Cloud Run.
 #
-# Build contract:
-# - Next.js `output: 'standalone'` must be set in next.config.ts
-# - NEXT_PUBLIC_* env vars must be passed as --build-arg (they are
-#   inlined into the client bundle at build time, not read at runtime)
-# - Final image runs as non-root on port 8080
+# Single-stage build using uv for fast dependency installation. No
+# build-time env vars needed — FastAPI reads env vars at runtime, so
+# `gcloud run deploy --set-env-vars` and Secret Manager mounts just work.
 #
-# See docs/PLATFORM-GUIDE.md for the full Cloud Run deploy flow.
+# Compare to the Next.js version this replaces (42 lines, multi-stage,
+# HOSTNAME=0.0.0.0 hack, NEXT_PUBLIC_* build args): this is 20 lines.
 
-# --- deps: install production dependencies only ---
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+FROM python:3.12-slim
 
-# --- builder: build the Next.js app ---
-FROM node:20-alpine AS builder
+# uv: fast Python package manager. Copied from the official image so we
+# don't need to install it via pip at build time.
+COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /uvx /bin/
+
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+
+# Install dependencies first (cached layer). --frozen ensures CI builds
+# match the lockfile exactly.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+
+# Copy application code and install the project itself.
 COPY . .
+RUN uv sync --frozen --no-dev
 
-# NEXT_PUBLIC_* variables are baked into the client bundle here.
-# Pass them via --build-arg when invoking `docker build`:
-#   docker build --build-arg NEXT_PUBLIC_APP_URL=https://... .
-ARG NEXT_PUBLIC_APP_URL
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
-
-# --- runner: minimal runtime image ---
-FROM node:20-alpine AS runner
-WORKDIR /app
-
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+# Cloud Run sends traffic to $PORT (default 8080). uvicorn honors the
+# --host and --port flags, no env var fiddling needed.
 ENV PORT=8080
-# HOSTNAME=0.0.0.0 is REQUIRED. Without it, the Next.js server binds to
-# localhost and Cloud Run health checks fail silently with "container
-# starting but not ready." See docs/PATTERN-LIBRARY.md.
-ENV HOSTNAME=0.0.0.0
 
-# Non-root user (hardening; Cloud Run does not require it)
-RUN addgroup --system --gid 1001 nodejs \
- && adduser --system --uid 1001 nextjs
-
-# Copy only the standalone server + static assets + public.
-# Everything else is discarded, shrinking the image from ~1 GB to ~150 MB.
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-
-USER nextjs
 EXPOSE 8080
 
-# With output: 'standalone', the entry point is `node server.js`,
-# NOT `next start`. `next` is not present in the standalone bundle.
-CMD ["node", "server.js"]
+# Run uvicorn directly — no shell, signals propagate cleanly for graceful
+# shutdown. `--host 0.0.0.0` is explicit so we bind on all interfaces.
+CMD ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
