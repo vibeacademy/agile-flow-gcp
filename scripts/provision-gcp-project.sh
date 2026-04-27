@@ -29,6 +29,86 @@ set -euo pipefail
 GCP_REGION="${GCP_REGION:-us-central1}"
 ARTIFACT_REPO="${ARTIFACT_REPO:-agile-flow}"
 
+# ── Retry helper for GCP eventual consistency ────────────────────────────
+#
+# Enabling a GCP API (e.g. artifactregistry.googleapis.com) is eventually
+# consistent: the enable call returns success but the API endpoint can
+# return PERMISSION_DENIED for 30-90 seconds afterward, even for project
+# owners. Same pattern hits IAM bindings after SA creation. We retry on
+# that specific stderr signature only — bad arguments, already-exists,
+# and auth failures fail immediately.
+#
+# Usage:
+#   retry_eventual_consistency <label> -- <gcloud command...>
+#
+# Defaults: 6 attempts, exponential backoff (2,4,8,16,30,30s), ~90s cap.
+# Override with RETRY_MAX_ATTEMPTS, RETRY_MAX_SLEEP env vars.
+
+RETRY_MAX_ATTEMPTS="${RETRY_MAX_ATTEMPTS:-6}"
+RETRY_MAX_SLEEP="${RETRY_MAX_SLEEP:-30}"
+
+retry_eventual_consistency() {
+  local label="$1"; shift
+  if [[ "${1:-}" != "--" ]]; then
+    echo "ERROR: retry_eventual_consistency expects 'label -- cmd...'" >&2
+    return 2
+  fi
+  shift
+
+  local attempt=1
+  local sleep_s=2
+  local stderr_file
+  stderr_file="$(mktemp)"
+
+  local exit_code
+  while (( attempt <= RETRY_MAX_ATTEMPTS )); do
+    # Run the command with `set -e` temporarily disabled so we can capture
+    # its exit code. Bash function-local `set +e` does not leak out of
+    # the function in a `command || handler` pattern, but a bare `if/then`
+    # clobbers $?. Cleanest: && / || chain.
+    exit_code=0
+    "$@" 2> "$stderr_file" || exit_code=$?
+
+    if (( exit_code == 0 )); then
+      cat "$stderr_file" >&2
+      rm -f "$stderr_file"
+      return 0
+    fi
+
+    # Permanent error signatures — fail immediately, do not retry.
+    if grep -qE 'Invalid argument|already exists|ALREADY_EXISTS|invalid value|Bad Request|UNAUTHENTICATED' "$stderr_file"; then
+      cat "$stderr_file" >&2
+      rm -f "$stderr_file"
+      return "$exit_code"
+    fi
+
+    # Transient eventual-consistency signature.
+    if grep -qE 'PERMISSION_DENIED.*denied on resource|IAM_PERMISSION_DENIED|API has not been used|SERVICE_DISABLED' "$stderr_file"; then
+      if (( attempt == RETRY_MAX_ATTEMPTS )); then
+        echo "[retry $attempt/$RETRY_MAX_ATTEMPTS] $label — exhausted" >&2
+        cat "$stderr_file" >&2
+        rm -f "$stderr_file"
+        return "$exit_code"
+      fi
+      echo "[retry $attempt/$RETRY_MAX_ATTEMPTS] $label — transient 403, sleeping ${sleep_s}s" >&2
+      sleep "$sleep_s"
+      sleep_s=$(( sleep_s * 2 ))
+      (( sleep_s > RETRY_MAX_SLEEP )) && sleep_s=$RETRY_MAX_SLEEP
+      attempt=$(( attempt + 1 ))
+      continue
+    fi
+
+    # Unrecognized error — surface it and bail. Better to fail loudly than
+    # to retry indefinitely on something we don't understand.
+    cat "$stderr_file" >&2
+    rm -f "$stderr_file"
+    return "$exit_code"
+  done
+
+  rm -f "$stderr_file"
+  return 1
+}
+
 CREATE_PROJECT=false
 WITH_SA_KEY=false
 
@@ -99,10 +179,11 @@ if gcloud artifacts repositories describe "$ARTIFACT_REPO" \
   echo "[skip] Artifact Registry repo '$ARTIFACT_REPO' already exists"
 else
   echo "[create] Artifact Registry repo '$ARTIFACT_REPO'"
-  gcloud artifacts repositories create "$ARTIFACT_REPO" \
-    --repository-format=docker \
-    --location="$GCP_REGION" \
-    --project="$GCP_PROJECT_ID"
+  retry_eventual_consistency "artifact registry create" -- \
+    gcloud artifacts repositories create "$ARTIFACT_REPO" \
+      --repository-format=docker \
+      --location="$GCP_REGION" \
+      --project="$GCP_PROJECT_ID"
 fi
 
 # ── Step 4: Deployer service account ─────────────────────────────────────
@@ -114,9 +195,10 @@ if gcloud iam service-accounts describe "$SA_EMAIL" \
   echo "[skip] Service account 'deployer' already exists"
 else
   echo "[create] Service account 'deployer'"
-  gcloud iam service-accounts create deployer \
-    --display-name="GitHub Actions deployer" \
-    --project="$GCP_PROJECT_ID"
+  retry_eventual_consistency "service account create" -- \
+    gcloud iam service-accounts create deployer \
+      --display-name="GitHub Actions deployer" \
+      --project="$GCP_PROJECT_ID"
 fi
 
 # ── Step 5: IAM roles ────────────────────────────────────────────────────
@@ -130,11 +212,12 @@ ROLES=(
 
 for role in "${ROLES[@]}"; do
   echo "[bind] $role -> $SA_EMAIL"
-  gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
-    --member="serviceAccount:${SA_EMAIL}" \
-    --role="$role" \
-    --condition=None \
-    --quiet >/dev/null
+  retry_eventual_consistency "iam bind $role" -- \
+    gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
+      --member="serviceAccount:${SA_EMAIL}" \
+      --role="$role" \
+      --condition=None \
+      --quiet >/dev/null
 done
 
 # ── Step 6: Service account key (workshop shortcut) ─────────────────────
