@@ -107,6 +107,45 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --role="roles/secretmanager.secretAccessor"
 ```
 
+### How a participant fork "links" to a GCP project
+
+There is no automatic link between a GitHub fork and a GCP project. The
+"link" is just **four GitHub Actions secrets** that point the fork's
+deploy workflow at the right project. When a participant pushes to
+`main` on their fork, `deploy.yml` runs, reads these secrets, and uses
+them to authenticate to GCP and deploy to that specific project.
+
+| Secret | Example | Source |
+|---|---|---|
+| `GCP_PROJECT_ID` | `af-bob-2026-05` | provisioner output |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/123456789/locations/global/workloadIdentityPools/github/providers/github` | provisioner output (after Step 5 below) |
+| `GCP_SERVICE_ACCOUNT` | `deployer@af-bob-2026-05.iam.gserviceaccount.com` | provisioner output |
+| `NEON_API_KEY` | the workshop's shared Neon API key | facilitator |
+
+The first three are *per-participant*; the fourth is shared across the
+cohort. The participant pastes them into their fork's
+`Settings > Secrets and variables > Actions` panel, and that's the
+entire handoff. No shared identity, no project metadata stored in
+either system — just secret values.
+
+**End-to-end for one participant (`bob`):**
+
+1. Facilitator runs `provision-workshop-roster.sh` → `af-bob-2026-05` exists with the deployer SA.
+2. Facilitator runs the WIF setup in Step 5 below, plugging in `bob-gh/agile-flow-gcp` as the GitHub repo. This creates the trust relationship: "GitHub Actions runs in `bob-gh/agile-flow-gcp` may impersonate `deployer@af-bob-2026-05`."
+3. Facilitator emails bob the four secret values. (Template in `agile-flow-meta/docs/workshops/gcp-facilitator-runbook.md` §7.)
+4. Bob forks `vibeacademy/agile-flow-gcp` to his account, pastes the four secrets, pushes a trivial change to `main`. The deploy workflow uses WIF to assume the deployer SA and ships the container to bob's project.
+
+**The most common participant footgun:** if bob renames his fork (e.g.
+`bob-gh/my-cool-project`), WIF auth fails because the trust binding
+names `bob-gh/agile-flow-gcp` exactly. Tell participants in their
+day-1 email: do not rename the fork.
+
+WIF setup is currently per-project and manual; ticket [#5](https://github.com/vibeacademy/agile-flow-gcp/issues/5) tracks
+folding it into `provision-gcp-project.sh` so the four secrets above
+fall out of one provisioning command.
+
+---
+
 ### Step 5: Set Up Workload Identity Federation (Recommended)
 
 Workload Identity Federation lets GitHub Actions authenticate to GCP
