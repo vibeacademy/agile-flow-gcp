@@ -171,6 +171,45 @@ ec=$?
 set -e
 assert_eq "2" "$ec" "exit 2 on missing -- separator"
 
+# ── Test 6: SA-not-exist transient (INVALID_ARGUMENT after SA create) ───
+# Reproduces the live bug observed 2026-04-27: `gcloud projects
+# add-iam-policy-binding` against a just-created SA returns
+# INVALID_ARGUMENT: Service account ... does not exist. The retry helper
+# must classify this as transient, not permanent.
+
+echo ""
+echo "Test 6: SA-not-exist transient is retried"
+
+COUNTER=$(mktemp); echo 0 > "$COUNTER"
+SA_FLAKY=$(mktemp)
+cat > "$SA_FLAKY" <<EOF
+#!/usr/bin/env bash
+n=\$(<"$COUNTER")
+n=\$((n + 1))
+echo \$n > "$COUNTER"
+if (( n < 2 )); then
+  echo "ERROR: (gcloud.projects.add-iam-policy-binding) INVALID_ARGUMENT: Service account deployer@af-x.iam.gserviceaccount.com does not exist." >&2
+  exit 1
+fi
+exit 0
+EOF
+chmod +x "$SA_FLAKY"
+
+out=$(retry_eventual_consistency "sa flaky" -- "$SA_FLAKY" 2>&1)
+ec=$?
+assert_eq "0" "$ec" "exit 0 after SA-not-exist retried"
+assert_eq "2" "$(cat "$COUNTER")" "command invoked twice (1 fail + 1 success)"
+
+if echo "$out" | grep -q "retry 1/"; then
+  echo -e "  ${GREEN}✓${NC} SA-not-exist classified as transient"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[retry 1/...]' in stderr — was SA-not-exist treated as permanent?"
+  FAIL=$((FAIL + 1))
+fi
+
+rm -f "$SA_FLAKY" "$COUNTER"
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""
