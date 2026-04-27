@@ -151,7 +151,30 @@ if [[ "$CREATE_PROJECT" == "true" ]]; then
   fi
 
   if gcloud projects describe "$GCP_PROJECT_ID" >/dev/null 2>&1; then
-    echo "[skip] Project $GCP_PROJECT_ID already exists"
+    # Project ID exists. We need to know whether it's ours and modifiable.
+    # GCP project IDs are global, so an ID can exist in another org and
+    # still respond to `describe`. Probe by attempting to read its IAM
+    # policy — if we have getIamPolicy, we have enough to billing-link
+    # and bind roles. If we don't, the project isn't ours.
+    if gcloud projects get-iam-policy "$GCP_PROJECT_ID" >/dev/null 2>&1; then
+      project_state="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(lifecycleState)' 2>/dev/null)"
+      if [[ "$project_state" == "ACTIVE" ]]; then
+        echo "[skip] Project $GCP_PROJECT_ID already exists (ACTIVE, owned by you)"
+      else
+        echo "" >&2
+        echo "ERROR: Project $GCP_PROJECT_ID exists in your org but is in state: $project_state" >&2
+        echo "       Either restore it via the Cloud Console (Resource Manager > recently deleted)" >&2
+        echo "       or change the 'cohort' column in roster.csv to generate a fresh project ID." >&2
+        exit 1
+      fi
+    else
+      echo "" >&2
+      echo "ERROR: Project $GCP_PROJECT_ID exists but you do not have permission to modify it." >&2
+      echo "       This usually means the ID is taken in another GCP organization." >&2
+      echo "       (GCP project IDs are globally unique across all of Google Cloud.)" >&2
+      echo "       Change the 'cohort' column in roster.csv to generate a fresh project ID." >&2
+      exit 1
+    fi
   else
     echo "[create] Project $GCP_PROJECT_ID"
     gcloud projects create "$GCP_PROJECT_ID"
