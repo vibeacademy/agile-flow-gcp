@@ -140,9 +140,10 @@ either system — just secret values.
 names `bob-gh/agile-flow-gcp` exactly. Tell participants in their
 day-1 email: do not rename the fork.
 
-WIF setup is currently per-project and manual; ticket [#5](https://github.com/vibeacademy/agile-flow-gcp/issues/5) tracks
-folding it into `provision-gcp-project.sh` so the four secrets above
-fall out of one provisioning command.
+As of #5, WIF setup is automatic per-project — the four secrets above
+fall out of `provision-gcp-project.sh` Step 5.5 when `GITHUB_USERNAME`
+is set. The workshop wrapper exports it automatically per CSV row.
+See Step 5 below for details.
 
 ---
 
@@ -151,6 +152,40 @@ fall out of one provisioning command.
 Workload Identity Federation lets GitHub Actions authenticate to GCP
 without storing a long-lived service account key. This is the best
 practice and should be your default.
+
+**As of `provision-gcp-project.sh` Step 5.5, this is automatic per
+project.** Set `GITHUB_USERNAME` and the script creates the pool, the
+OIDC provider, and the IAM binding scoped to
+`<github_user>/agile-flow-gcp`.
+
+```bash
+GCP_PROJECT_ID=af-alice-2026-05 \
+BILLING_ACCOUNT_ID=XXX-XXXX-XXXX \
+GITHUB_USERNAME=alice-gh \
+  ./scripts/provision-gcp-project.sh --create-project
+```
+
+The script's "Next steps" output prints the exact `GCP_WORKLOAD_IDENTITY_PROVIDER`
+and `GCP_SERVICE_ACCOUNT` values to paste into the participant's fork
+secrets — no copying from this doc, no project-number arithmetic.
+
+The workshop wrapper (`provision-workshop-roster.sh`) reads `github_user`
+from each `roster.csv` row and exports `GITHUB_USERNAME` automatically,
+so a facilitator running the canonical workshop flow never needs to
+think about WIF setup at all. The wrapper also records the WIF provider
+resource string in `roster-output.csv` per row.
+
+> **Don't rename the fork.** The IAM binding is pinned to
+> `<github_user>/agile-flow-gcp` exactly. If a participant renames their
+> fork (e.g. `bob-gh/my-cool-project`), WIF auth fails on first deploy
+> with a clear error from `google-github-actions/auth`. Tell participants
+> in their day-1 email: fork as-is, do not rename.
+
+#### Manual fallback (rarely needed)
+
+If you need to set WIF up by hand — for an out-of-band project, a
+non-default repo name without using the `WIF_REPO` env override, or
+debugging — the original sequence:
 
 ```bash
 # Create the pool
@@ -165,7 +200,6 @@ gcloud iam workload-identity-pools providers create-oidc github \
   --location=global \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor" \
-  --attribute-condition="assertion.repository_owner == 'YOUR_GITHUB_ORG'" \
   --project=YOUR_PROJECT_ID
 
 # Get the project number (different from project ID)
@@ -175,11 +209,11 @@ PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projec
 gcloud iam service-accounts add-iam-policy-binding \
   "deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/YOUR_GITHUB_ORG/YOUR_REPO" \
+  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/GITHUB_USER/REPO_NAME" \
   --project=YOUR_PROJECT_ID
 ```
 
-The WIF provider resource name you need for GitHub secrets is:
+The WIF provider resource name to paste into GitHub secrets is:
 
 ```
 projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github

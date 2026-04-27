@@ -289,6 +289,78 @@ for role in "${ROLES[@]}"; do
       --quiet >/dev/null
 done
 
+# ── Step 5.5: Workload Identity Federation (when GITHUB_USERNAME set) ────
+#
+# Trust GitHub Actions OIDC tokens from a specific repo so deploys can
+# impersonate the deployer SA without a long-lived JSON key. Gated on
+# GITHUB_USERNAME being set — when unset, this whole block is skipped
+# and the script's existing --with-sa-key path remains the auth fallback.
+#
+# WIF_REPO defaults to `agile-flow-gcp`. Workshop participants fork the
+# canonical template without renaming, so the binding pattern is always
+# <github_user>/agile-flow-gcp. Override WIF_REPO if you ever need a
+# different repo name (dry-run smoke, non-workshop callers).
+#
+# We deliberately do NOT add --attribute-condition restricting to a
+# specific GitHub org — workshop participants fork under their personal
+# accounts, not the canonical org. Access is scoped at the IAM binding
+# layer instead, where attribute.repository=<user>/agile-flow-gcp
+# pins the trust to one specific repo.
+#
+# All three sub-steps (pool, provider, binding) are idempotent.
+
+if [[ -n "${GITHUB_USERNAME:-}" ]]; then
+  WIF_REPO="${WIF_REPO:-agile-flow-gcp}"
+  WIF_POOL="github"
+  WIF_PROVIDER="github"
+
+  PROJECT_NUMBER="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')"
+
+  # 5.5a: Create the workload-identity pool (idempotent)
+  if gcloud iam workload-identity-pools describe "$WIF_POOL" \
+    --location=global \
+    --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+    echo "[skip] WIF pool '$WIF_POOL' already exists"
+  else
+    echo "[create] WIF pool '$WIF_POOL'"
+    gcloud iam workload-identity-pools create "$WIF_POOL" \
+      --location=global \
+      --display-name="GitHub Actions" \
+      --project="$GCP_PROJECT_ID"
+  fi
+
+  # 5.5b: Create the OIDC provider trusting GitHub Actions tokens
+  if gcloud iam workload-identity-pools providers describe "$WIF_PROVIDER" \
+    --workload-identity-pool="$WIF_POOL" \
+    --location=global \
+    --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+    echo "[skip] WIF provider '$WIF_PROVIDER' already exists"
+  else
+    echo "[create] WIF provider '$WIF_PROVIDER'"
+    gcloud iam workload-identity-pools providers create-oidc "$WIF_PROVIDER" \
+      --workload-identity-pool="$WIF_POOL" \
+      --location=global \
+      --issuer-uri="https://token.actions.githubusercontent.com" \
+      --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor" \
+      --project="$GCP_PROJECT_ID"
+  fi
+
+  # 5.5c: Bind the deployer SA so the specific repo can impersonate it.
+  # add-iam-policy-binding is idempotent — re-running with the same member
+  # is a no-op.
+  WIF_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository/${GITHUB_USERNAME}/${WIF_REPO}"
+  echo "[bind] roles/iam.workloadIdentityUser <- ${GITHUB_USERNAME}/${WIF_REPO}"
+  gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+    --role="roles/iam.workloadIdentityUser" \
+    --member="$WIF_MEMBER" \
+    --project="$GCP_PROJECT_ID" \
+    --quiet >/dev/null
+
+  WIF_PROVIDER_RESOURCE="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/providers/${WIF_PROVIDER}"
+else
+  echo "[skip] WIF setup not requested (GITHUB_USERNAME unset)"
+fi
+
 # ── Step 6: Service account key (workshop shortcut) ─────────────────────
 
 if [[ "$WITH_SA_KEY" == "true" ]]; then
@@ -322,8 +394,11 @@ echo ""
 echo "   GCP_PROJECT_ID         = $GCP_PROJECT_ID"
 if [[ "$WITH_SA_KEY" == "true" ]]; then
   echo "   GCP_SA_KEY             = (contents of ${GCP_PROJECT_ID}-deployer-key.json)"
+elif [[ -n "${WIF_PROVIDER_RESOURCE:-}" ]]; then
+  echo "   GCP_WORKLOAD_IDENTITY_PROVIDER = $WIF_PROVIDER_RESOURCE"
+  echo "   GCP_SERVICE_ACCOUNT    = $SA_EMAIL"
 else
-  echo "   GCP_WORKLOAD_IDENTITY_PROVIDER = (see docs/PLATFORM-GUIDE.md Step 5)"
+  echo "   GCP_WORKLOAD_IDENTITY_PROVIDER = (set GITHUB_USERNAME or see docs/PLATFORM-GUIDE.md Step 5)"
   echo "   GCP_SERVICE_ACCOUNT    = $SA_EMAIL"
 fi
 echo ""

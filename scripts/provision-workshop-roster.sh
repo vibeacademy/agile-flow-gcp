@@ -94,10 +94,10 @@ skipped=0
 
 # tail -n +2 skips header. Process substitution avoids subshell so counters
 # survive into the summary block.
-# shellcheck disable=SC2034  # github_user is reserved for #5 (WIF binding) and notification steps
 while IFS=',' read -r handle github_user email cohort; do
   # Strip whitespace and CR (Windows line endings)
   handle="$(echo "$handle" | tr -d '[:space:]\r')"
+  github_user="$(echo "$github_user" | tr -d '[:space:]\r')"
   email="$(echo "$email" | tr -d '[:space:]\r')"
   cohort="$(echo "$cohort" | tr -d '[:space:]\r')"
 
@@ -126,11 +126,14 @@ while IFS=',' read -r handle github_user email cohort; do
   fi
 
   # Run the inner provisioner. It handles "already exists" internally;
-  # we just pass through the env it needs.
+  # we just pass through the env it needs. GITHUB_USERNAME enables the
+  # WIF setup in Step 5.5 of the inner script — when empty, that step
+  # is skipped and the SA-key shortcut remains the auth fallback.
   GCP_PROJECT_ID="$project_id" \
   BILLING_ACCOUNT_ID="$BILLING_ACCOUNT_ID" \
   GCP_REGION="${GCP_REGION:-us-central1}" \
   ARTIFACT_REPO="${ARTIFACT_REPO:-agile-flow}" \
+  GITHUB_USERNAME="$github_user" \
     "$PROVISION_SCRIPT" --create-project
 
   # Grant the participant editor on their own project. Idempotent.
@@ -142,9 +145,17 @@ while IFS=',' read -r handle github_user email cohort; do
     --condition=None \
     --quiet >/dev/null
 
-  # WIF setup is ticket #5; not in scope here. Output column stays empty
-  # until #5 lands or the facilitator wires it manually.
+  # WIF provider resource path. The inner script's Step 5.5 created the
+  # pool + provider when GITHUB_USERNAME was non-empty; record the canonical
+  # resource string for the summary CSV so the facilitator can paste it
+  # straight into participant fork secrets.
   wif_provider=""
+  if [[ -n "$github_user" ]]; then
+    project_number="$(gcloud projects describe "$project_id" --format='value(projectNumber)' 2>/dev/null || true)"
+    if [[ -n "$project_number" ]]; then
+      wif_provider="projects/${project_number}/locations/global/workloadIdentityPools/github/providers/github"
+    fi
+  fi
 
   echo "$handle,$project_id,$status,$wif_provider,$timestamp" >> "$OUTPUT_CSV"
 done < <(tail -n +2 "$ROSTER_CSV")
