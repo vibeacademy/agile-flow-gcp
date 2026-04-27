@@ -57,6 +57,10 @@
 
 28. [Server-Side URLs: Never Hardcode Origins](#28-server-side-urls-never-hardcode-origins)
 
+### Workshop Operations
+
+29. [Workshop: Participant Email Must Match Their Google Identity](#29-workshop-participant-email-must-match-their-google-identity)
+
 ---
 
 ## 1. Cloud Run: Bind Uvicorn to 0.0.0.0
@@ -885,3 +889,71 @@ def get_external_origin(request: Request) -> str:
 Never store the production URL in code. Construct the origin from request
 headers, or read it from a runtime env var (`APP_URL`) that differs per
 environment.
+
+---
+
+## 29. Workshop: Participant Email Must Match Their Google Identity
+
+**Gotcha:** `scripts/provision-workshop-roster.sh` grants each participant
+`roles/editor` on their project via:
+
+```bash
+gcloud projects add-iam-policy-binding "$project_id" \
+  --member="user:$email" \
+  --role="roles/editor"
+```
+
+`gcloud` accepts almost any email-shaped string here as long as the domain
+has Google auth attached. That produces two failure modes that look fine
+during provisioning but break the participant on day-of:
+
+1. **Wrong identity, valid domain.** Roster says `joe@somecorp.com`. Joe's
+   actual Google identity at `somecorp.com` is `joe.smith@somecorp.com`.
+   The binding succeeds. Joe opens the project URL on day-of and sees a
+   "you do not have access" banner.
+2. **No Google identity at all.** Personal address with no Google account
+   attached. `gcloud` rejects it with `Invalid value for
+   [policy.bindings.members]: must reference a real, existing principal`.
+   The wrapper is fail-fast, so the whole loop halts on the offender's row.
+
+Both cost ~30 minutes of live workshop triage if discovered on day-of.
+
+**Pattern:** Validate emails *before* running provisioning.
+
+```bash
+# 1. Ask each participant the verification question:
+#    "What email do you sign in to https://console.cloud.google.com with?"
+#
+# 2. Sanity-check each row of the roster for a Google-identity-shaped value:
+
+awk -F, 'NR>1 && $3 !~ /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/ {
+    print "BAD: row " NR ": " $0; exit 1
+  }' roster.csv
+
+# 3. (Optional) For Workspace participants, confirm the email resolves
+#    to a real Google identity by attempting a no-op IAM check on a
+#    facilitator-owned scratch project:
+
+gcloud projects add-iam-policy-binding <scratch-project-id> \
+  --member="user:<participant-email>" \
+  --role="roles/viewer" \
+  --condition=None --quiet \
+  && gcloud projects remove-iam-policy-binding <scratch-project-id> \
+       --member="user:<participant-email>" \
+       --role="roles/viewer" \
+       --condition=None --quiet
+```
+
+Step 1 is the highest-leverage check — it costs 2 minutes and catches the
+wrong-identity case that step 3 cannot.
+
+**Where this fits in the workshop flow:** add the validation to the
+T-3 days "verify provisioning landed" step in
+`agile-flow-meta/docs/workshops/gcp-facilitator-runbook.md`, *before* you
+run `provision-workshop-roster.sh`. The runbook section 3 callout
+documents the same gotcha for facilitators.
+
+**Related:** the dry-run checklist (`gcp-dry-run-checklist.md`) requires
+the synthetic participant's email to be the *facilitator's own* real
+Google email. That guarantees the dry-run also exercises the
+"can the participant see the project" path, not just provisioning.
