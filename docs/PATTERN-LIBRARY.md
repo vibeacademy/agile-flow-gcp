@@ -993,24 +993,35 @@ first IAM binding for the very first participant fails.
 
 **Pattern: disable the constraint per-project, scoped to workshop projects only.**
 
-Run this *once per participant project*, after `provision-gcp-project.sh`
-creates the project and before `gcloud projects add-iam-policy-binding`
-attempts the binding (the workshop wrapper calls the binding directly,
-so the override must run in between):
+As of `provision-gcp-project.sh` Step 1.5, the override is applied
+automatically per project right after creation. You do not normally need
+to run it by hand. The pattern below is for reference and for
+out-of-band cases (e.g. recovering an existing project).
+
+> **`disable-enforce` does not work here.** This is a *list constraint*
+> (with `allowedValues` / `allValues`), not a boolean. `disable-enforce`
+> only works on boolean constraints — using it returns
+> `INVALID_ARGUMENT: Policy and Constraint must be of the same type`.
+> Use `set-policy` with the YAML/JSON `listPolicy: { allValues: ALLOW }`
+> form below.
 
 ```bash
-# Check whether the org has the constraint enforced. Idempotent — no-op
-# if not enforced. Requires roles/orgpolicy.policyAdmin on the project,
+# Apply per project. Idempotent — re-running is a no-op.
+# Requires roles/orgpolicy.policyAdmin on the project,
 # which the project creator has by default.
 
 if gcloud resource-manager org-policies describe \
   iam.allowedPolicyMemberDomains \
   --project="$GCP_PROJECT_ID" \
-  --format='value(booleanPolicy.enforced)' 2>/dev/null | grep -q true; then
-  echo "[override] disabling domain-restricted-sharing for $GCP_PROJECT_ID"
-  gcloud resource-manager org-policies disable-enforce \
-    iam.allowedPolicyMemberDomains \
-    --project="$GCP_PROJECT_ID"
+  --format='value(listPolicy.allValues)' 2>/dev/null | grep -q '^ALLOW$'; then
+  echo "[skip] override already in place for $GCP_PROJECT_ID"
+elif gcloud resource-manager org-policies list \
+  --project="$GCP_PROJECT_ID" \
+  --format='value(constraint)' 2>/dev/null | grep -q 'allowedPolicyMemberDomains'; then
+  echo "[override] applying domain-restricted-sharing override for $GCP_PROJECT_ID"
+  echo '{"constraint":"constraints/iam.allowedPolicyMemberDomains","listPolicy":{"allValues":"ALLOW"}}' \
+    | gcloud resource-manager org-policies set-policy /dev/stdin \
+        --project="$GCP_PROJECT_ID"
 fi
 ```
 
@@ -1036,8 +1047,10 @@ that failed will succeed within seconds. There is no propagation lag
 on the policy override itself in our experience, but the SA-binding
 retry helper covers the rare case where there is.
 
-**Where this fits in the workshop flow:** the runbook's T-3 days
-provisioning step covers the override. Once
-`provision-workshop-roster.sh` ships the override inline (planned
-follow-up; not yet shipped), facilitators won't need to think about
-this.
+**Where this fits in the workshop flow:** as of #19,
+`provision-gcp-project.sh` runs the override automatically per project
+(Step 1.5, between project creation and API enable). Facilitators do
+not need to apply it manually for new workshop projects. The runbook's
+T-3 days section retains a recovery snippet for projects provisioned
+before #19, or for cases where the override needs to be re-applied
+out-of-band.
