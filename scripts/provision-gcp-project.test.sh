@@ -210,6 +210,126 @@ fi
 
 rm -f "$SA_FLAKY" "$COUNTER"
 
+# ── Test 7: project exists but not owned → fail with clear error ─────────
+# Reproduces the live bug observed 2026-04-27 where a roster row hit a
+# project ID that exists outside the caller's reach (different org, or
+# soft-deleted with no perms). describe succeeds, get-iam-policy fails.
+
+echo ""
+echo "Test 7: exists-but-not-yours fails fast with clear message"
+
+T7=$(mktemp -d -t aflowtest-XXXX)
+mkdir -p "$T7/bin"
+
+# Stub gcloud to: describe succeeds, get-iam-policy fails, all else fail.
+cat > "$T7/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$T7/gcloud.log"
+case "\$1 \$2" in
+  "projects describe") exit 0 ;;
+  "projects get-iam-policy")
+    echo "ERROR: PERMISSION_DENIED on getIamPolicy" >&2
+    exit 1
+    ;;
+  *)
+    echo "FATAL: stub should never be called for: \$*" >&2
+    exit 99
+    ;;
+esac
+EOF
+chmod +x "$T7/bin/gcloud"
+
+set +e
+PATH="$T7/bin:$PATH" \
+  GCP_PROJECT_ID="af-collision-2026-05" \
+  BILLING_ACCOUNT_ID="FAKE" \
+  "$SCRIPT" --create-project > "$T7/stdout.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "1" "$ec" "exit 1 on exists-but-not-yours"
+
+# Critical assertion: billing-link must NEVER be called when ownership probe fails.
+# That was the live bug — billing-link fired and produced a confusing error.
+billing_calls=0
+if [[ -f "$T7/gcloud.log" ]]; then
+  billing_calls="$(grep -c 'billing projects link' "$T7/gcloud.log" || true)"
+fi
+assert_eq "0" "$billing_calls" "billing-link was NOT called"
+
+if grep -q "globally unique" "$T7/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} error message names the global-uniqueness cause"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected error message to mention 'globally unique'; got:"
+  cat "$T7/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -qi "'cohort' column" "$T7/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} error message names the workaround"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected error message to suggest changing cohort"
+  FAIL=$((FAIL + 1))
+fi
+
+# ── Test 8: project exists in own org but is DELETE_REQUESTED → fail ─────
+
+echo ""
+echo "Test 8: exists-in-own-org-but-not-ACTIVE fails fast"
+
+T8=$(mktemp -d -t aflowtest-XXXX)
+mkdir -p "$T8/bin"
+
+# Stub: describe succeeds, get-iam-policy succeeds, lifecycleState query
+# returns DELETE_REQUESTED.
+cat > "$T8/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$T8/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    # The script calls describe twice: once to check existence (no flags),
+    # once to read lifecycleState. Distinguish by --format presence.
+    if echo "\$*" | grep -q -- "--format"; then
+      echo "DELETE_REQUESTED"
+    fi
+    exit 0
+    ;;
+  "projects get-iam-policy") exit 0 ;;
+  *)
+    echo "FATAL: stub should never be called for: \$*" >&2
+    exit 99
+    ;;
+esac
+EOF
+chmod +x "$T8/bin/gcloud"
+
+set +e
+PATH="$T8/bin:$PATH" \
+  GCP_PROJECT_ID="af-zombie-2026-05" \
+  BILLING_ACCOUNT_ID="FAKE" \
+  "$SCRIPT" --create-project > "$T8/stdout.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "1" "$ec" "exit 1 on DELETE_REQUESTED"
+
+billing_calls=0
+if [[ -f "$T8/gcloud.log" ]]; then
+  billing_calls="$(grep -c 'billing projects link' "$T8/gcloud.log" || true)"
+fi
+assert_eq "0" "$billing_calls" "billing-link was NOT called"
+
+if grep -q "DELETE_REQUESTED" "$T8/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} error message names the lifecycleState"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected error message to mention DELETE_REQUESTED; got:"
+  cat "$T8/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""
