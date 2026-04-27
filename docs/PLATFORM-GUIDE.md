@@ -227,6 +227,76 @@ If the workflow succeeds but the container fails its health check with
 
 ---
 
+## Workshop: Provisioning N Projects
+
+When running a workshop, the facilitator provisions one GCP project per
+participant. `scripts/provision-workshop-roster.sh` wraps
+`provision-gcp-project.sh` in a CSV-driven loop so all participant
+projects can be created with one command.
+
+### Roster format
+
+Create `roster.csv` with this exact header:
+
+```csv
+handle,github_user,email,cohort
+alice,alice-gh,alice@example.com,2026-05
+bob,bob-gh,bob@example.com,2026-05
+```
+
+- `handle` — short, lowercase, stable identifier; appears in the GCP project ID
+- `github_user` — reserved for future tickets (WIF binding, notification);
+  required in the row but not used by this script
+- `email` — Google identity granted `roles/editor` on the new project
+- `cohort` — `YYYY-MM` of the workshop date; appears in the project ID
+
+Project IDs follow the pattern `af-{handle}-{cohort}`. This shape is
+referenced from the facilitator runbook, the participant day-1 doc, and
+the dry-run checklist — do not change it.
+
+A working example lives at `scripts/roster.example.csv`.
+
+### Running the wrapper
+
+```bash
+BILLING_ACCOUNT_ID=XXXXXX-XXXXXX-XXXXXX \
+  ./scripts/provision-workshop-roster.sh roster.csv
+```
+
+For each row the wrapper:
+
+1. Computes the project ID and checks whether it already exists
+2. Calls `provision-gcp-project.sh --create-project` (idempotent)
+3. Grants `roles/editor` on the new project to the participant's email
+4. Appends a row to `roster-output.csv` with status + project ID
+
+### Idempotency and fail-fast
+
+Re-running the script with the same `roster.csv` is safe — already-existing
+projects are recorded as `skipped` instead of `created`.
+
+The wrapper is fail-fast: if any row fails, the loop stops and exits
+non-zero. This is intentional — a half-provisioned classroom is harder
+to recover from than a clean stop. Inspect the failing row in
+`roster-output.csv`, fix the cause, and re-run. Successful rows from the
+prior run will be skipped on the retry.
+
+### What this does NOT do
+
+- Workload Identity Federation setup is intentionally out of scope. Either
+  set it up manually per project (see "Step 5: Workload Identity Federation"
+  above), or wait for ticket [#5](https://github.com/vibeacademy/agile-flow-gcp/issues/5) to land.
+- Budget caps are not configured here. See ticket [#6](https://github.com/vibeacademy/agile-flow-gcp/issues/6).
+- Notification emails to participants are not sent. The facilitator runbook
+  in `agile-flow-meta` documents the email template.
+
+### Output and gitignore
+
+`roster.csv` (input) and `roster-output.csv` (output) are both gitignored.
+They contain participant emails — never commit either.
+
+---
+
 ## Daily Operations
 
 ### Viewing Logs

@@ -55,3 +55,8 @@ logs/
 # FRAMEWORK:END
 
 # Project-specific ignores (add below this line)
+
+# Workshop roster — input + generated output. Contains participant emails;
+# never commit. Use scripts/roster.example.csv as the format reference.
+roster.csv
+roster-output.csv
