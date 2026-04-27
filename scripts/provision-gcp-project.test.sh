@@ -330,6 +330,153 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 9-11: Step 1.5 domain-restricted-sharing override ──────────────
+#
+# The script's Step 1.5 has three branches:
+#   - override already in place (allValues=ALLOW)  → [skip]
+#   - constraint enforced, override not yet applied → set-policy is called
+#   - constraint not enforced at all                → [skip]
+#
+# Each branch is exercised below. Stubs inject controlled responses to
+# `org-policies describe` and `org-policies list`, capture set-policy
+# calls in a log, and short-circuit before the real provisioning steps
+# (we exit the stub gcloud non-zero on `services` so the script aborts
+# before Step 2 — this is intentional: we only need to verify Step 1.5
+# behavior, not the whole flow).
+
+run_step1_5_test() {
+  local label="$1"
+  local override_state="$2"   # "already-applied" | "enforced" | "not-enforced"
+  local tmp; tmp=$(mktemp -d -t aflowtest-XXXX)
+  mkdir -p "$tmp/bin"
+
+  cat > "$tmp/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$tmp/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    # Existence check returns 1 (project doesn't exist) so the script
+    # takes the create path — but we stub create to succeed.
+    exit 1
+    ;;
+  "projects create") exit 0 ;;
+  "billing projects") exit 0 ;;
+  "resource-manager org-policies")
+    # Branch on subcommand
+    case "\$3" in
+      describe)
+        case "$override_state" in
+          already-applied) echo "ALLOW"; exit 0 ;;
+          *)               exit 1 ;;
+        esac
+        ;;
+      list)
+        case "$override_state" in
+          enforced) echo "constraints/iam.allowedPolicyMemberDomains"; exit 0 ;;
+          *)        exit 0 ;;
+        esac
+        ;;
+      set-policy)
+        # Read the YAML/JSON body from /dev/stdin, log it
+        cat >> "$tmp/set-policy-body.log"
+        exit 0
+        ;;
+    esac
+    ;;
+  "services enable")
+    # Short-circuit here so the test doesn't have to mock the rest.
+    exit 1
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$tmp/bin/gcloud"
+
+  set +e
+  PATH="$tmp/bin:$PATH" \
+    GCP_PROJECT_ID="af-policy-test" \
+    BILLING_ACCOUNT_ID="FAKE" \
+    "$SCRIPT" --create-project > "$tmp/stdout.log" 2>&1
+  set -e
+
+  echo "$tmp"
+}
+
+# Test 9: override already applied → [skip] message, set-policy NOT called
+
+echo ""
+echo "Test 9: Step 1.5 skips when override already in place"
+
+T9=$(run_step1_5_test "already-applied" "already-applied")
+
+if grep -q "already in place" "$T9/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip message logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'already in place' in stdout"
+  cat "$T9/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+set_policy_calls=0
+if [[ -f "$T9/gcloud.log" ]]; then
+  set_policy_calls="$(grep -c 'set-policy' "$T9/gcloud.log" || true)"
+fi
+assert_eq "0" "$set_policy_calls" "set-policy NOT called when already in place"
+
+# Test 10: constraint enforced → set-policy called with correct body
+
+echo ""
+echo "Test 10: Step 1.5 applies override when constraint is enforced"
+
+T10=$(run_step1_5_test "enforced" "enforced")
+
+if grep -q "applying domain-restricted-sharing override" "$T10/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} override-applied message logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'applying domain-restricted-sharing override' in stdout"
+  cat "$T10/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+set_policy_calls=0
+if [[ -f "$T10/gcloud.log" ]]; then
+  set_policy_calls="$(grep -c 'set-policy' "$T10/gcloud.log" || true)"
+fi
+assert_eq "1" "$set_policy_calls" "set-policy called exactly once"
+
+if [[ -f "$T10/set-policy-body.log" ]] && grep -q '"allValues":"ALLOW"' "$T10/set-policy-body.log"; then
+  echo -e "  ${GREEN}✓${NC} set-policy body has allValues:ALLOW"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} set-policy body did not contain allValues:ALLOW"
+  cat "$T10/set-policy-body.log" 2>/dev/null || echo "(body file not written)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 11: constraint not enforced → [skip] message, set-policy NOT called
+
+echo ""
+echo "Test 11: Step 1.5 skips when constraint is not enforced"
+
+T11=$(run_step1_5_test "not-enforced" "not-enforced")
+
+if grep -q "not enforced" "$T11/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} not-enforced skip message logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'not enforced' in stdout"
+  cat "$T11/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+set_policy_calls=0
+if [[ -f "$T11/gcloud.log" ]]; then
+  set_policy_calls="$(grep -c 'set-policy' "$T11/gcloud.log" || true)"
+fi
+assert_eq "0" "$set_policy_calls" "set-policy NOT called when constraint absent"
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""

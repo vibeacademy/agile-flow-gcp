@@ -185,6 +185,35 @@ if [[ "$CREATE_PROJECT" == "true" ]]; then
     --billing-account="$BILLING_ACCOUNT_ID"
 fi
 
+# ── Step 1.5: Override Domain Restricted Sharing (workshop projects) ─────
+#
+# If the parent org enforces `iam.allowedPolicyMemberDomains` (a list
+# constraint, on by default for Cloud Identity Free orgs), every
+# subsequent IAM binding to an external-domain identity (Gmail, other
+# Workspace) fails with FAILED_PRECONDITION. Override per project:
+# allValues=ALLOW so any Google identity can be a binding member.
+# Production projects in the same org keep their constraint.
+#
+# This is a list constraint, NOT a boolean — `disable-enforce` does not
+# work; `set-policy` with the explicit listPolicy form does. See
+# docs/PATTERN-LIBRARY.md pattern #30.
+
+if gcloud resource-manager org-policies describe \
+  iam.allowedPolicyMemberDomains \
+  --project="$GCP_PROJECT_ID" \
+  --format='value(listPolicy.allValues)' 2>/dev/null | grep -q '^ALLOW$'; then
+  echo "[skip] domain-restricted-sharing override already in place for $GCP_PROJECT_ID"
+elif gcloud resource-manager org-policies list \
+  --project="$GCP_PROJECT_ID" \
+  --format='value(constraint)' 2>/dev/null | grep -q 'allowedPolicyMemberDomains'; then
+  echo "[override] applying domain-restricted-sharing override for $GCP_PROJECT_ID"
+  echo '{"constraint":"constraints/iam.allowedPolicyMemberDomains","listPolicy":{"allValues":"ALLOW"}}' \
+    | gcloud resource-manager org-policies set-policy /dev/stdin \
+        --project="$GCP_PROJECT_ID"
+else
+  echo "[skip] domain-restricted-sharing not enforced; no override needed"
+fi
+
 # ── Step 2: Enable APIs ──────────────────────────────────────────────────
 
 echo "[enable] Required APIs (may take 30-60 seconds on first run)"
