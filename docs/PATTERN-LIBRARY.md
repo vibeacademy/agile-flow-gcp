@@ -60,6 +60,7 @@
 ### Workshop Operations
 
 29. [Workshop: Participant Email Must Match Their Google Identity](#29-workshop-participant-email-must-match-their-google-identity)
+30. [Workshop: Domain-Restricted Sharing Blocks External-Email IAM Bindings](#30-workshop-domain-restricted-sharing-blocks-external-email-iam-bindings)
 
 ---
 
@@ -957,3 +958,86 @@ documents the same gotcha for facilitators.
 the synthetic participant's email to be the *facilitator's own* real
 Google email. That guarantees the dry-run also exercises the
 "can the participant see the project" path, not just provisioning.
+
+---
+
+## 30. Workshop: Domain-Restricted Sharing Blocks External-Email IAM Bindings
+
+**Gotcha:** If your GCP organization has the
+`constraints/iam.allowedPolicyMemberDomains` org policy enabled (also
+called **Domain Restricted Sharing**), `gcloud projects add-iam-policy-binding`
+rejects bindings against any identity outside the allowed-domain list —
+including consumer Gmail accounts and Workspace identities on
+non-allowed domains. The reject is `FAILED_PRECONDITION` with this
+exact stderr:
+
+```text
+ERROR: (gcloud.projects.add-iam-policy-binding) FAILED_PRECONDITION:
+One or more users named in the policy do not belong to a permitted customer.
+- '@type': type.googleapis.com/google.rpc.PreconditionFailure
+  violations:
+  - description: User <email> is not in permitted organization.
+    type: constraints/iam.allowedPolicyMemberDomains
+```
+
+This is **not** an eventual-consistency error. It's a permanent policy
+rejection — no amount of retry will fix it. The retry helper in
+`provision-gcp-project.sh` correctly does not retry it (the signature
+doesn't match any transient pattern, so it bails immediately).
+
+**Why this hits workshops:** participants sign up with personal Gmail
+addresses (`@gmail.com`) by default. Most facilitator GCP organizations
+have Domain Restricted Sharing enabled by their security defaults — it
+is on by default for orgs created via Cloud Identity Free. The very
+first IAM binding for the very first participant fails.
+
+**Pattern: disable the constraint per-project, scoped to workshop projects only.**
+
+Run this *once per participant project*, after `provision-gcp-project.sh`
+creates the project and before `gcloud projects add-iam-policy-binding`
+attempts the binding (the workshop wrapper calls the binding directly,
+so the override must run in between):
+
+```bash
+# Check whether the org has the constraint enforced. Idempotent — no-op
+# if not enforced. Requires roles/orgpolicy.policyAdmin on the project,
+# which the project creator has by default.
+
+if gcloud resource-manager org-policies describe \
+  iam.allowedPolicyMemberDomains \
+  --project="$GCP_PROJECT_ID" \
+  --format='value(booleanPolicy.enforced)' 2>/dev/null | grep -q true; then
+  echo "[override] disabling domain-restricted-sharing for $GCP_PROJECT_ID"
+  gcloud resource-manager org-policies disable-enforce \
+    iam.allowedPolicyMemberDomains \
+    --project="$GCP_PROJECT_ID"
+fi
+```
+
+The override is **scoped to one project**. It does not affect the rest
+of your organization's posture — production projects, shared services,
+etc. retain the constraint. Workshop projects are short-lived and
+deleted at T+1 day, so the security exposure window is bounded.
+
+**Alternatives considered and rejected:**
+
+- **Disable at the org level.** Removes the constraint from every
+  project in the org. Wrong scope for a workshop.
+- **Add `gmail.com` to the allowed-domains list.** Same scope problem —
+  permanently broadens what your org accepts. Also: for Workspace
+  participants on assorted corp domains, you'd need to enumerate every
+  domain ahead of time.
+- **Require Workspace identities on a permitted domain.** Operationally
+  hostile — most workshop participants don't have Workspace accounts on
+  a domain you control.
+
+**Verification:** after the override, the same `add-iam-policy-binding`
+that failed will succeed within seconds. There is no propagation lag
+on the policy override itself in our experience, but the SA-binding
+retry helper covers the rare case where there is.
+
+**Where this fits in the workshop flow:** the runbook's T-3 days
+provisioning step covers the override. Once
+`provision-workshop-roster.sh` ships the override inline (planned
+follow-up; not yet shipped), facilitators won't need to think about
+this.
