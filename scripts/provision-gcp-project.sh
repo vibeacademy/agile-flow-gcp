@@ -31,12 +31,18 @@ ARTIFACT_REPO="${ARTIFACT_REPO:-agile-flow}"
 
 # ── Retry helper for GCP eventual consistency ────────────────────────────
 #
-# Enabling a GCP API (e.g. artifactregistry.googleapis.com) is eventually
-# consistent: the enable call returns success but the API endpoint can
-# return PERMISSION_DENIED for 30-90 seconds afterward, even for project
-# owners. Same pattern hits IAM bindings after SA creation. We retry on
-# that specific stderr signature only — bad arguments, already-exists,
-# and auth failures fail immediately.
+# Two known propagation windows in this script:
+#   1. After `gcloud services enable`, the API endpoint can return 403
+#      (PERMISSION_DENIED, "API has not been used") for 30-90 seconds.
+#   2. After `gcloud iam service-accounts create`, the IAM policy
+#      machinery rejects bindings against the new SA with
+#      INVALID_ARGUMENT: "Service account ... does not exist" for a
+#      few seconds.
+#
+# We classify by stderr signature: anything matching the transient
+# patterns retries with exponential backoff; anything else fails
+# immediately. There is no explicit permanent-error list — if the
+# stderr doesn't match a known-transient pattern, we bail.
 #
 # Usage:
 #   retry_eventual_consistency <label> -- <gcloud command...>
@@ -75,22 +81,18 @@ retry_eventual_consistency() {
       return 0
     fi
 
-    # Permanent error signatures — fail immediately, do not retry.
-    if grep -qE 'Invalid argument|already exists|ALREADY_EXISTS|invalid value|Bad Request|UNAUTHENTICATED' "$stderr_file"; then
-      cat "$stderr_file" >&2
-      rm -f "$stderr_file"
-      return "$exit_code"
-    fi
-
-    # Transient eventual-consistency signature.
-    if grep -qE 'PERMISSION_DENIED.*denied on resource|IAM_PERMISSION_DENIED|API has not been used|SERVICE_DISABLED' "$stderr_file"; then
+    # Transient eventual-consistency signatures. Checked BEFORE permanent
+    # patterns because GCP returns INVALID_ARGUMENT for "service account
+    # does not exist" right after creating it — that's a propagation lag,
+    # not a typo.
+    if grep -qE 'PERMISSION_DENIED.*denied on resource|IAM_PERMISSION_DENIED|API has not been used|SERVICE_DISABLED|Service account .* does not exist' "$stderr_file"; then
       if (( attempt == RETRY_MAX_ATTEMPTS )); then
         echo "[retry $attempt/$RETRY_MAX_ATTEMPTS] $label — exhausted" >&2
         cat "$stderr_file" >&2
         rm -f "$stderr_file"
         return "$exit_code"
       fi
-      echo "[retry $attempt/$RETRY_MAX_ATTEMPTS] $label — transient 403, sleeping ${sleep_s}s" >&2
+      echo "[retry $attempt/$RETRY_MAX_ATTEMPTS] $label — transient (eventual consistency), sleeping ${sleep_s}s" >&2
       sleep "$sleep_s"
       sleep_s=$(( sleep_s * 2 ))
       (( sleep_s > RETRY_MAX_SLEEP )) && sleep_s=$RETRY_MAX_SLEEP
@@ -199,6 +201,21 @@ else
     gcloud iam service-accounts create deployer \
       --display-name="GitHub Actions deployer" \
       --project="$GCP_PROJECT_ID"
+
+  # The IAM policy machinery often does not see the new SA for a few
+  # seconds after creation. Wait for `describe` to confirm visibility
+  # before entering the binding loop. Bounded at ~30s.
+  echo "[wait] Service account propagation"
+  for i in 1 2 3 4 5 6; do
+    if gcloud iam service-accounts describe "$SA_EMAIL" \
+      --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 5
+    if (( i == 6 )); then
+      echo "[wait] propagation slow — falling through to retry loop in bindings" >&2
+    fi
+  done
 fi
 
 # ── Step 5: IAM roles ────────────────────────────────────────────────────
