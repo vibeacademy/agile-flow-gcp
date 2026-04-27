@@ -227,12 +227,25 @@ If the workflow succeeds but the container fails its health check with
 
 ---
 
-## Workshop: Provisioning N Projects
+## Workshop: Lifecycle (Setup and Teardown)
 
-When running a workshop, the facilitator provisions one GCP project per
-participant. `scripts/provision-workshop-roster.sh` wraps
-`provision-gcp-project.sh` in a CSV-driven loop so all participant
-projects can be created with one command.
+When running a workshop, the facilitator's mental model is two commands:
+
+```bash
+# Bring up the classroom
+BILLING_ACCOUNT_ID=XXXXXX-XXXXXX-XXXXXX \
+  ./scripts/workshop-setup.sh roster.csv
+
+# Tear it down at T+1 day
+./scripts/workshop-teardown.sh roster.csv          # interactive prompt
+./scripts/workshop-teardown.sh roster.csv --yes    # non-interactive
+```
+
+The setup script runs four pre-flight checks (gcloud auth, billing
+account is OPEN, roster file exists with the expected header, roster
+has data rows) and then hands off to the underlying provisioning logic.
+Pre-flight failures exit 2 with actionable messages — far better than
+discovering a missing auth token mid-loop.
 
 ### Roster format
 
@@ -245,55 +258,72 @@ bob,bob-gh,bob@example.com,2026-05
 ```
 
 - `handle` — short, lowercase, stable identifier; appears in the GCP project ID
-- `github_user` — reserved for future tickets (WIF binding, notification);
-  required in the row but not used by this script
+- `github_user` — reserved for future use (WIF binding, notification);
+  required in the row but not used by the current scripts
 - `email` — Google identity granted `roles/editor` on the new project
 - `cohort` — `YYYY-MM` of the workshop date; appears in the project ID
 
 Project IDs follow the pattern `af-{handle}-{cohort}`. This shape is
 referenced from the facilitator runbook, the participant day-1 doc, and
-the dry-run checklist — do not change it.
+the dry-run checklist — do not change it. A working example lives at
+`scripts/roster.example.csv`.
 
-A working example lives at `scripts/roster.example.csv`.
+### Setup behavior
 
-### Running the wrapper
+`workshop-setup.sh` is a thin wrapper: after pre-flight passes, it
+delegates to `scripts/provision-workshop-roster.sh`. That script:
 
-```bash
-BILLING_ACCOUNT_ID=XXXXXX-XXXXXX-XXXXXX \
-  ./scripts/provision-workshop-roster.sh roster.csv
-```
-
-For each row the wrapper:
-
-1. Computes the project ID and checks whether it already exists
+1. Computes each project ID and checks whether it already exists
 2. Calls `provision-gcp-project.sh --create-project` (idempotent)
 3. Grants `roles/editor` on the new project to the participant's email
 4. Appends a row to `roster-output.csv` with status + project ID
 
 ### Idempotency and fail-fast
 
-Re-running the script with the same `roster.csv` is safe — already-existing
-projects are recorded as `skipped` instead of `created`.
+Re-running setup with the same roster is safe — already-existing
+projects are recorded as `skipped` instead of `created`. The wrapper is
+fail-fast: if any row fails, the loop stops and exits non-zero. This is
+intentional — a half-provisioned classroom is harder to recover from
+than a clean stop. Inspect `roster-output.csv`, fix the cause, and
+re-run; successful rows are skipped.
 
-The wrapper is fail-fast: if any row fails, the loop stops and exits
-non-zero. This is intentional — a half-provisioned classroom is harder
-to recover from than a clean stop. Inspect the failing row in
-`roster-output.csv`, fix the cause, and re-run. Successful rows from the
-prior run will be skipped on the retry.
+### Teardown behavior
 
-### What this does NOT do
+`workshop-teardown.sh` reads the same roster, derives the project IDs
+(only IDs matching `af-{handle}-{cohort}` from the CSV are touched —
+this is a guard against malformed rosters taking down unrelated
+projects), and runs `gcloud projects delete` per row.
 
-- Workload Identity Federation setup is intentionally out of scope. Either
-  set it up manually per project (see "Step 5: Workload Identity Federation"
-  above), or wait for ticket [#5](https://github.com/vibeacademy/agile-flow-gcp/issues/5) to land.
-- Budget caps are not configured here. See ticket [#6](https://github.com/vibeacademy/agile-flow-gcp/issues/6).
-- Notification emails to participants are not sent. The facilitator runbook
-  in `agile-flow-meta` documents the email template.
+By default the script prints the list and prompts for confirmation
+(`[y/N]`). Pass `--yes` to skip the prompt for non-interactive use.
+Idempotent: re-running on already-deleted projects logs `[skip]` rows
+and exits 0.
+
+After deletion, `roster-output.csv` is removed (it's stale once
+projects are gone). `roster.csv` (input) is preserved.
+
+> **GCP holds project IDs for ~30 days after deletion.** Re-creating
+> with the *exact* same project ID during that window will fail with
+> `PROJECT_ID_NOT_AVAILABLE`. If you need to reprovision quickly, change
+> the `cohort` column in the roster (e.g. `2026-05` → `2026-05a`) so
+> new project IDs are generated.
+
+### What the lifecycle scripts do NOT do
+
+- Workload Identity Federation setup — currently manual per project
+  (see "Step 5: Workload Identity Federation" above), or track ticket
+  [#5](https://github.com/vibeacademy/agile-flow-gcp/issues/5).
+- Budget caps — see ticket [#6](https://github.com/vibeacademy/agile-flow-gcp/issues/6).
+- Org-policy override for `iam.allowedPolicyMemberDomains` — currently
+  manual per project (see [`PATTERN-LIBRARY.md` pattern #30](./PATTERN-LIBRARY.md)),
+  or track ticket [#19](https://github.com/vibeacademy/agile-flow-gcp/issues/19).
+- Notification emails to participants — facilitator runbook in
+  `agile-flow-meta` documents the email template.
 
 ### Output and gitignore
 
-`roster.csv` (input) and `roster-output.csv` (output) are both gitignored.
-They contain participant emails — never commit either.
+`roster.csv` (input) and `roster-output.csv` (output) are both
+gitignored. They contain participant emails — never commit either.
 
 ---
 
