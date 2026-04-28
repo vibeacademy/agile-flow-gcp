@@ -62,8 +62,9 @@ EOF
   # Fake inner provisioner
   cat > "$tmp/bin/provision-gcp-project.sh" <<EOF
 #!/usr/bin/env bash
-# Log every invocation
-echo "provision \$* GCP_PROJECT_ID=\${GCP_PROJECT_ID:-}" >> "$tmp/provision.log"
+# Log every invocation along with the env vars the wrapper is supposed
+# to forward. Tests grep this log to verify per-row env passthrough.
+echo "provision \$* GCP_PROJECT_ID=\${GCP_PROJECT_ID:-} GITHUB_USERNAME=\${GITHUB_USERNAME:-} NEON_BRANCH_NAME=\${NEON_BRANCH_NAME:-}" >> "$tmp/provision.log"
 
 if [[ "$behavior" == "fail" ]]; then
   echo "fake provision failure" >&2
@@ -229,7 +230,7 @@ else
   echo -e "  ${RED}✗${NC} wrapper should exit 2 on bad header (got $exit_code)"
   FAIL=$((FAIL + 1))
 fi
-assert_contains "header must be exactly" "$T4/stdout.log" "error message mentions header format"
+assert_contains "header must be one of" "$T4/stdout.log" "error message mentions header format"
 
 # ── Test 5: Missing BILLING_ACCOUNT_ID rejected ─────────────────────────
 
@@ -255,6 +256,101 @@ else
   echo -e "  ${RED}✗${NC} wrapper should exit 2 when BILLING_ACCOUNT_ID is unset (got $exit_code)"
   FAIL=$((FAIL + 1))
 fi
+
+# ── Test 6: 5-column header + neon_branch column passes through ─────────
+# Verifies that:
+#   - 5-column header is accepted
+#   - NEON_BRANCH_NAME is exported per row from the 5th column
+#   - When the 5th column is empty for a row, defaults to handle
+
+echo ""
+echo "Test 6: 5-column header forwards NEON_BRANCH_NAME"
+
+T6=$(new_tmp)
+make_stubs "$T6" "ok"
+cat > "$T6/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch
+alice,alice-gh,alice@example.com,2026-05,
+bob,bob-gh,bob@example.com,2026-05,bob_personal
+EOF
+
+set +e
+PATH="$T6/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T6/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T6/roster-output.csv" \
+  "$WRAPPER" "$T6/roster.csv" > "$T6/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with 5-column header"
+# alice row should default neon_branch to handle (empty 5th column → handle)
+assert_contains "GCP_PROJECT_ID=af-alice-2026-05.*NEON_BRANCH_NAME=alice" "$T6/provision.log" "alice row defaults NEON_BRANCH_NAME to handle"
+# bob row uses the explicit override
+assert_contains "GCP_PROJECT_ID=af-bob-2026-05.*NEON_BRANCH_NAME=bob_personal" "$T6/provision.log" "bob row uses explicit neon_branch override"
+
+# ── Test 7: 4-column header still works (NEON_BRANCH_NAME defaults) ─────
+
+echo ""
+echo "Test 7: 4-column header still works (defaults NEON_BRANCH_NAME to handle)"
+
+T7=$(new_tmp)
+make_stubs "$T7" "ok"
+write_roster "$T7/roster.csv"
+
+set +e
+PATH="$T7/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T7/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T7/roster-output.csv" \
+  "$WRAPPER" "$T7/roster.csv" > "$T7/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with 4-column header"
+assert_contains "GCP_PROJECT_ID=af-alice-2026-05.*NEON_BRANCH_NAME=alice" "$T7/provision.log" "alice defaults to handle (4-column)"
+assert_contains "GCP_PROJECT_ID=af-bob-2026-05.*NEON_BRANCH_NAME=bob" "$T7/provision.log" "bob defaults to handle (4-column)"
+
+# ── Test 8: invalid neon_branch value fails fast ────────────────────────
+
+echo ""
+echo "Test 8: invalid neon_branch fails the row fast"
+
+T8=$(new_tmp)
+make_stubs "$T8" "ok"
+cat > "$T8/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch
+alice,alice-gh,alice@example.com,2026-05,bad branch with spaces
+EOF
+
+set +e
+PATH="$T8/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T8/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T8/roster-output.csv" \
+  "$WRAPPER" "$T8/roster.csv" > "$T8/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+# Note: 'bad branch with spaces' → after whitespace stripping → 'badbranchwithspaces'
+# which actually IS valid alphanumeric. Use a value that's invalid even after stripping.
+# Re-write with a value containing $ (definitely invalid).
+cat > "$T8/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch
+alice,alice-gh,alice@example.com,2026-05,bad\$value
+EOF
+
+set +e
+PATH="$T8/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T8/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T8/roster-output.csv" \
+  "$WRAPPER" "$T8/roster.csv" > "$T8/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "2" "$exit_code" "wrapper exits 2 on invalid neon_branch"
+assert_contains "invalid neon_branch" "$T8/stdout.log" "error message names the field"
 
 # ── Summary ──────────────────────────────────────────────────────────────
 

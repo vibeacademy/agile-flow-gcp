@@ -15,11 +15,21 @@
 #   GCP_REGION           (default: us-central1) — passed through to inner script
 #   ARTIFACT_REPO        (default: agile-flow)  — passed through to inner script
 #   PROVISION_SCRIPT     (default: scripts/provision-gcp-project.sh) — for tests
+#   NEON_API_KEY         optional; forwarded to inner script for branch creation
+#   NEON_PROJECT_ID      optional; forwarded to inner script for branch creation
 #
-# CSV format (header required):
+# CSV format (header required, accepts either 4 or 5 columns):
 #   handle,github_user,email,cohort
 #   alice,alice-gh,alice@example.com,2026-05
 #   bob,bob-gh,bob@example.com,2026-05
+#
+#   handle,github_user,email,cohort,neon_branch        (5-column variant)
+#   alice,alice-gh,alice@example.com,2026-05,alice
+#   bob,bob-gh,bob@example.com,2026-05,bob_personal    (explicit branch override)
+#
+# When the optional `neon_branch` column is empty or absent, NEON_BRANCH_NAME
+# defaults to the row's `handle`. Use the override when the same person needs
+# a stable Neon branch across cohorts (different `cohort` value, same branch).
 #
 # Project IDs follow the pattern  af-{handle}-{cohort}  and are globally
 # unique. This is non-negotiable: the runbook, day-1 doc, and dry-run
@@ -68,12 +78,25 @@ if [[ ! -x "$PROVISION_SCRIPT" ]]; then
 fi
 
 # ── CSV header validation ────────────────────────────────────────────────
+#
+# The roster format accepts two header shapes:
+#   1. handle,github_user,email,cohort               (4 columns, original)
+#   2. handle,github_user,email,cohort,neon_branch   (5 columns, with Neon
+#                                                     branch override)
+#
+# When the 5th column is present and non-empty for a row, NEON_BRANCH_NAME
+# takes that value. Otherwise it defaults to the row's `handle` — which
+# matches the GCP project ID's handle component, so attendee branches are
+# named alice / bob / etc. by default.
 
-EXPECTED_HEADER="handle,github_user,email,cohort"
+EXPECTED_HEADER_4="handle,github_user,email,cohort"
+EXPECTED_HEADER_5="handle,github_user,email,cohort,neon_branch"
 ACTUAL_HEADER="$(head -n 1 "$ROSTER_CSV" | tr -d '\r')"
 
-if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER" ]]; then
-  echo "ERROR: roster CSV header must be exactly: $EXPECTED_HEADER" >&2
+if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER_4" && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_5" ]]; then
+  echo "ERROR: roster CSV header must be one of:" >&2
+  echo "       $EXPECTED_HEADER_4" >&2
+  echo "       $EXPECTED_HEADER_5" >&2
   echo "       got: $ACTUAL_HEADER" >&2
   exit 2
 fi
@@ -94,15 +117,33 @@ skipped=0
 
 # tail -n +2 skips header. Process substitution avoids subshell so counters
 # survive into the summary block.
-while IFS=',' read -r handle github_user email cohort; do
+#
+# We read 5 fields. When the input is 4-column, neon_branch is empty; the
+# default-to-handle logic below covers it.
+while IFS=',' read -r handle github_user email cohort neon_branch; do
   # Strip whitespace and CR (Windows line endings)
   handle="$(echo "$handle" | tr -d '[:space:]\r')"
   github_user="$(echo "$github_user" | tr -d '[:space:]\r')"
   email="$(echo "$email" | tr -d '[:space:]\r')"
   cohort="$(echo "$cohort" | tr -d '[:space:]\r')"
+  neon_branch="$(echo "${neon_branch:-}" | tr -d '[:space:]\r')"
 
   if [[ -z "$handle" || -z "$cohort" ]]; then
     continue
+  fi
+
+  # Default neon_branch to handle when not explicitly set per row.
+  if [[ -z "$neon_branch" ]]; then
+    neon_branch="$handle"
+  fi
+
+  # Validate Neon branch name: 1-63 chars, alphanumeric + hyphen + underscore.
+  # Reject anything else fail-fast on this row, since the inner script's
+  # Neon API call would error mid-loop with a less-clear message.
+  if ! [[ "$neon_branch" =~ ^[A-Za-z0-9_-]{1,63}$ ]]; then
+    echo "ERROR: invalid neon_branch '$neon_branch' for handle '$handle'" >&2
+    echo "       must be 1-63 chars, alphanumeric + hyphen + underscore only" >&2
+    exit 2
   fi
 
   total=$((total + 1))
@@ -129,11 +170,18 @@ while IFS=',' read -r handle github_user email cohort; do
   # we just pass through the env it needs. GITHUB_USERNAME enables the
   # WIF setup in Step 5.5 of the inner script — when empty, that step
   # is skipped and the SA-key shortcut remains the auth fallback.
+  # NEON_BRANCH_NAME enables the Neon-branch-per-attendee step (#33).
+  # NEON_API_KEY and NEON_PROJECT_ID are forwarded only if set in the
+  # facilitator's environment; the inner script skips that step when
+  # either is missing.
   GCP_PROJECT_ID="$project_id" \
   BILLING_ACCOUNT_ID="$BILLING_ACCOUNT_ID" \
   GCP_REGION="${GCP_REGION:-us-central1}" \
   ARTIFACT_REPO="${ARTIFACT_REPO:-agile-flow}" \
   GITHUB_USERNAME="$github_user" \
+  NEON_BRANCH_NAME="$neon_branch" \
+  NEON_API_KEY="${NEON_API_KEY:-}" \
+  NEON_PROJECT_ID="${NEON_PROJECT_ID:-}" \
     "$PROVISION_SCRIPT" --create-project
 
   # Grant the participant editor on their own project. Idempotent.

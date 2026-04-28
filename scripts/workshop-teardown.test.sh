@@ -219,6 +219,29 @@ ec=$?
 assert_eq "1" "$ec" "exit 1 when any delete fails"
 assert_contains "Failed:   2" "$T6/stdout.log" "summary shows failures"
 
+# ── Test 7: 5-column roster is accepted ─────────────────────────────────
+# Teardown only reads handle + cohort, so the 5th column is ignored — but
+# the header validation must accept the wider shape.
+
+echo ""
+echo "Test 7: 5-column roster header is accepted"
+
+T7=$(new_tmp)
+make_stubs "$T7" "all-active"
+cat > "$T7/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch
+alice,alice-gh,alice@example.com,2026-05,
+bob,bob-gh,bob@example.com,2026-05,bob_personal
+EOF
+
+PATH="$T7/bin:$PATH" \
+  OUTPUT_CSV="$T7/roster-output.csv" \
+  "$SCRIPT" "$T7/roster.csv" --yes > "$T7/stdout.log" 2>&1
+ec=$?
+
+assert_eq "0" "$ec" "exit 0 with 5-column header"
+assert_eq "2" "$(grep -c 'projects delete' "$T7/gcloud.log")" "both rows still attempted (5th column ignored)"
+
 # ── Summary ─────────────────────────────────────────────────────────────
 
 echo ""
