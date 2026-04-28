@@ -15,6 +15,19 @@
 #   GCP_REGION           (default: us-central1)
 #   ARTIFACT_REPO        (default: agile-flow)
 #   BILLING_ACCOUNT_ID   (required if --create-project)
+#   GITHUB_USERNAME      (optional) Enables Step 5.5 (WIF setup). Pinned
+#                        to <user>/${WIF_REPO:-agile-flow-gcp}.
+#   WIF_REPO             (default: agile-flow-gcp) Override the repo name
+#                        WIF binds to. Workshop participants fork the
+#                        canonical template without renaming, so the
+#                        default fits.
+#   NEON_API_KEY         (optional) Enables Step 5.7 (Neon branch +
+#                        database-url Secret Manager). Required for
+#                        per-attendee branch automation.
+#   NEON_PROJECT_ID      (optional) Same: required for Step 5.7.
+#   NEON_BRANCH_NAME     (optional) Same: required for Step 5.7.
+#                        Wrapper sets this from the CSV's neon_branch
+#                        column (defaults to handle).
 #
 # Notes:
 # - This script is idempotent. Re-running skips resources that already exist.
@@ -380,6 +393,185 @@ else
   echo "[skip] WIF setup not requested (GITHUB_USERNAME unset)"
 fi
 
+# ── Step 5.7: Neon branch + database-url Secret Manager ─────────────────
+#
+# Creates a per-attendee Neon branch and writes its pooled connection
+# string to the Secret Manager secret `database-url` in this GCP project.
+# Cloud Run mounts that secret as DATABASE_URL at runtime.
+#
+# Gated on NEON_API_KEY, NEON_PROJECT_ID, and NEON_BRANCH_NAME being set.
+# When any is unset, the step is skipped and the participant must create
+# the secret by hand (the script's "Next steps" footer notes this).
+#
+# Idempotency:
+#   - Branch already exists → fetch its pooled URI; do NOT recreate or
+#     reparent (per design decision: workshops are short-lived; drift
+#     against `main` is not checked).
+#   - Secret already exists with same value → no-op.
+#   - Secret exists with different value → add a new version.
+#
+# Connection URIs are sensitive (they include credentials). They are
+# never logged to stdout/stderr; only written to Secret Manager.
+
+if [[ -n "${NEON_API_KEY:-}" && -n "${NEON_PROJECT_ID:-}" && -n "${NEON_BRANCH_NAME:-}" ]]; then
+  NEON_API_BASE="https://console.neon.tech/api/v2"
+
+  # Helper: GET against Neon API. Body to stdout; error to stderr.
+  # Uses --fail-with-body so curl exits non-zero on 4xx/5xx but we still
+  # see the response.
+  neon_get() {
+    local path="$1"
+    curl --silent --show-error --fail-with-body \
+      -H "Authorization: Bearer $NEON_API_KEY" \
+      -H "Accept: application/json" \
+      "${NEON_API_BASE}${path}"
+  }
+
+  # Helper: POST. Same return semantics as neon_get. Captures HTTP code
+  # separately so 409 (branch exists) can be distinguished from real
+  # errors without --fail's cliff.
+  neon_post() {
+    local path="$1"
+    local body="$2"
+    local out_file="$3"
+    curl --silent --show-error \
+      --output "$out_file" \
+      --write-out '%{http_code}' \
+      -X POST \
+      -H "Authorization: Bearer $NEON_API_KEY" \
+      -H "Content-Type: application/json" \
+      -H "Accept: application/json" \
+      -d "$body" \
+      "${NEON_API_BASE}${path}"
+  }
+
+  # 5.7a: Find the project's main branch ID.
+  echo "[neon] looking up parent (main) branch in project $NEON_PROJECT_ID"
+  branches_json="$(neon_get "/projects/${NEON_PROJECT_ID}/branches")"
+  parent_branch_id="$(echo "$branches_json" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+branches = data.get('branches', [])
+for b in branches:
+    if b.get('default'):
+        print(b['id'])
+        sys.exit(0)
+sys.exit('no default branch found in project response')
+" 2>&1)"
+  if [[ -z "$parent_branch_id" || "$parent_branch_id" == *"no default branch"* ]]; then
+    echo "ERROR: could not find default (main) branch in Neon project $NEON_PROJECT_ID" >&2
+    echo "       response: $branches_json" >&2
+    exit 1
+  fi
+
+  # 5.7b: Try to create the attendee's branch.
+  echo "[neon] creating branch '$NEON_BRANCH_NAME' (parent: $parent_branch_id)"
+  create_response_file="$(mktemp)"
+  create_body="$(printf '{"branch":{"name":"%s","parent_id":"%s"},"endpoints":[{"type":"read_write"}]}' "$NEON_BRANCH_NAME" "$parent_branch_id")"
+  http_code="$(neon_post "/projects/${NEON_PROJECT_ID}/branches" "$create_body" "$create_response_file" || echo "000")"
+
+  if [[ "$http_code" == "201" || "$http_code" == "200" ]]; then
+    branch_id="$(python3 -c "import json,sys; print(json.load(open('$create_response_file'))['branch']['id'])")"
+    echo "[neon] branch created (id=$branch_id)"
+  elif [[ "$http_code" == "409" ]]; then
+    echo "[neon] branch '$NEON_BRANCH_NAME' already exists; reusing"
+    # Look up the existing branch's ID by name.
+    branch_id="$(echo "$branches_json" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+target = '$NEON_BRANCH_NAME'
+for b in data.get('branches', []):
+    if b.get('name') == target:
+        print(b['id'])
+        sys.exit(0)
+" 2>&1)"
+    if [[ -z "$branch_id" ]]; then
+      # The branch exists per Neon (409) but our cached branches_json from
+      # 5.7a didn't include it (race). Re-fetch.
+      branches_json="$(neon_get "/projects/${NEON_PROJECT_ID}/branches")"
+      branch_id="$(echo "$branches_json" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+target = '$NEON_BRANCH_NAME'
+for b in data.get('branches', []):
+    if b.get('name') == target:
+        print(b['id'])
+        sys.exit(0)
+sys.exit('branch not found after 409')
+" 2>&1)"
+    fi
+    if [[ -z "$branch_id" || "$branch_id" == *"branch not found"* ]]; then
+      echo "ERROR: Neon returned 409 for branch '$NEON_BRANCH_NAME' but lookup failed" >&2
+      exit 1
+    fi
+  else
+    echo "ERROR: Neon branch create returned HTTP $http_code" >&2
+    cat "$create_response_file" >&2
+    rm -f "$create_response_file"
+    exit 1
+  fi
+  rm -f "$create_response_file"
+
+  # 5.7c: Fetch the pooled connection URI for this branch.
+  echo "[neon] fetching pooled connection URI"
+  uri_response="$(neon_get "/projects/${NEON_PROJECT_ID}/connection_uri?branch_id=${branch_id}&database_name=neondb&role_name=neondb_owner&pooled=true")"
+  pooled_uri="$(echo "$uri_response" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+uri = data.get('uri', '')
+if not uri:
+    sys.exit('connection_uri response missing uri field')
+print(uri)
+" 2>&1)"
+  if [[ -z "$pooled_uri" || "$pooled_uri" == *"missing uri"* ]]; then
+    echo "ERROR: could not fetch pooled connection URI" >&2
+    exit 1
+  fi
+  # Sanity-check that we got the pooled host (sentinel: -pooler. in the host).
+  if [[ "$pooled_uri" != *"-pooler."* ]]; then
+    echo "WARN: connection URI does not contain '-pooler.'; is pooling enabled on this branch?" >&2
+  fi
+
+  # 5.7d: Write to Secret Manager. Idempotent: same value → no-op,
+  # different value → versions add.
+  if gcloud secrets describe database-url --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+    current="$(gcloud secrets versions access latest --secret=database-url --project="$GCP_PROJECT_ID" 2>/dev/null || true)"
+    if [[ "$current" == "$pooled_uri" ]]; then
+      echo "[skip] database-url secret already current"
+    else
+      echo "[update] database-url secret (adding new version)"
+      printf '%s' "$pooled_uri" | gcloud secrets versions add database-url \
+        --data-file=- --project="$GCP_PROJECT_ID" >/dev/null
+    fi
+  else
+    echo "[create] database-url secret"
+    printf '%s' "$pooled_uri" | gcloud secrets create database-url \
+      --data-file=- --project="$GCP_PROJECT_ID" >/dev/null
+  fi
+
+  # 5.7e: Per-secret IAM binding for the deployer SA. Project-level
+  # secretAccessor in Step 5 already covers this; per-secret is
+  # defense-in-depth. Idempotent.
+  echo "[bind] roles/secretmanager.secretAccessor on database-url -> $SA_EMAIL"
+  gcloud secrets add-iam-policy-binding database-url \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project="$GCP_PROJECT_ID" \
+    --quiet >/dev/null
+
+  # Track that we ran for the footer.
+  NEON_BRANCH_PROVISIONED="true"
+else
+  if [[ -z "${NEON_API_KEY:-}" ]]; then
+    echo "[skip] Neon branch + database-url secret (NEON_API_KEY unset)"
+  elif [[ -z "${NEON_PROJECT_ID:-}" ]]; then
+    echo "[skip] Neon branch + database-url secret (NEON_PROJECT_ID unset)"
+  else
+    echo "[skip] Neon branch + database-url secret (NEON_BRANCH_NAME unset)"
+  fi
+  NEON_BRANCH_PROVISIONED="false"
+fi
+
 # ── Step 6: Service account key (workshop shortcut) ─────────────────────
 
 if [[ "$WITH_SA_KEY" == "true" ]]; then
@@ -421,18 +613,42 @@ else
   echo "   GCP_SERVICE_ACCOUNT    = $SA_EMAIL"
 fi
 echo ""
-echo "2. Sign up at https://neon.tech and create a project."
-echo "   Set these GitHub secrets from the Neon console:"
-echo ""
-echo "   NEON_API_KEY           = (from Neon Settings -> API Keys)"
-echo "   NEON_PROJECT_ID        = (from Neon Settings -> General)"
-echo ""
-echo "3. Create the production database secret:"
-echo ""
-echo "   echo -n 'postgresql://...' | gcloud secrets create database-url \\"
-echo "     --data-file=- --project=$GCP_PROJECT_ID"
-echo ""
-echo "4. (Optional) Set these repository variables (non-secret):"
+if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
+  # Step 5.7 already created the Neon branch and database-url secret.
+  # Tell the participant what to set on their fork; no manual gcloud.
+  echo "2. Set these GitHub secrets from the Neon console (shared across cohort):"
+  echo ""
+  echo "   NEON_API_KEY           = (from Neon Settings -> API Keys)"
+  echo "   NEON_PROJECT_ID        = (from Neon Settings -> General)"
+  echo ""
+  echo "   The 'database-url' Secret Manager secret was created automatically"
+  echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
+  echo ""
+  echo "3. (For PR previews — see #36) Set NEON_PARENT_BRANCH on the participant's"
+  echo "   fork so per-PR branches inherit from this attendee's branch:"
+  echo ""
+  echo "   NEON_PARENT_BRANCH     = $NEON_BRANCH_NAME"
+  echo ""
+  echo "4. (Optional) Set these repository variables (non-secret):"
+else
+  # Manual fallback: facilitator either skipped the env vars or is running
+  # the inner script standalone.
+  echo "2. Sign up at https://neon.tech and create a project."
+  echo "   Set these GitHub secrets from the Neon console:"
+  echo ""
+  echo "   NEON_API_KEY           = (from Neon Settings -> API Keys)"
+  echo "   NEON_PROJECT_ID        = (from Neon Settings -> General)"
+  echo ""
+  echo "3. Create the production database secret:"
+  echo ""
+  echo "   echo -n 'postgresql://...' | gcloud secrets create database-url \\"
+  echo "     --data-file=- --project=$GCP_PROJECT_ID"
+  echo ""
+  echo "   (Or set NEON_API_KEY + NEON_PROJECT_ID + NEON_BRANCH_NAME before"
+  echo "   running this script and Step 5.7 will create the secret automatically.)"
+  echo ""
+  echo "4. (Optional) Set these repository variables (non-secret):"
+fi
 echo ""
 echo "   GCP_REGION             = $GCP_REGION"
 echo "   ARTIFACT_REPO          = $ARTIFACT_REPO"
