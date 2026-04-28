@@ -18,7 +18,7 @@
 #   NEON_API_KEY         optional; forwarded to inner script for branch creation
 #   NEON_PROJECT_ID      optional; forwarded to inner script for branch creation
 #
-# CSV format (header required, accepts either 4 or 5 columns):
+# CSV format (header required, accepts 4, 5, or 6 columns):
 #   handle,github_user,email,cohort
 #   alice,alice-gh,alice@example.com,2026-05
 #   bob,bob-gh,bob@example.com,2026-05
@@ -27,9 +27,20 @@
 #   alice,alice-gh,alice@example.com,2026-05,alice
 #   bob,bob-gh,bob@example.com,2026-05,bob_personal    (explicit branch override)
 #
+#   handle,github_user,email,cohort,neon_branch,github_full_repo   (6-column)
+#   alice,alice-gh,alice@acme.com,2026-05,alice,acme/agile-flow-alice
+#   bob,bob-gh,bob@acme.com,2026-05,bob,acme/widget-shop
+#   carol,carol-gh,carol@example.com,2026-05,carol,                (defaults)
+#
 # When the optional `neon_branch` column is empty or absent, NEON_BRANCH_NAME
 # defaults to the row's `handle`. Use the override when the same person needs
 # a stable Neon branch across cohorts (different `cohort` value, same branch).
+#
+# When the optional `github_full_repo` column is empty or absent,
+# defaults to `<github_user>/agile-flow-gcp`. Use the override when
+# attendees fork into an org and rename the repo to fit their product.
+# The wrapper splits the value at the slash and exports GITHUB_OWNER and
+# GITHUB_REPO to the inner script.
 #
 # Project IDs follow the pattern  af-{handle}-{cohort}  and are globally
 # unique. This is non-negotiable: the runbook, day-1 doc, and dry-run
@@ -91,12 +102,16 @@ fi
 
 EXPECTED_HEADER_4="handle,github_user,email,cohort"
 EXPECTED_HEADER_5="handle,github_user,email,cohort,neon_branch"
+EXPECTED_HEADER_6="handle,github_user,email,cohort,neon_branch,github_full_repo"
 ACTUAL_HEADER="$(head -n 1 "$ROSTER_CSV" | tr -d '\r')"
 
-if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER_4" && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_5" ]]; then
+if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER_4" \
+   && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_5" \
+   && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_6" ]]; then
   echo "ERROR: roster CSV header must be one of:" >&2
   echo "       $EXPECTED_HEADER_4" >&2
   echo "       $EXPECTED_HEADER_5" >&2
+  echo "       $EXPECTED_HEADER_6" >&2
   echo "       got: $ACTUAL_HEADER" >&2
   exit 2
 fi
@@ -118,15 +133,16 @@ skipped=0
 # tail -n +2 skips header. Process substitution avoids subshell so counters
 # survive into the summary block.
 #
-# We read 5 fields. When the input is 4-column, neon_branch is empty; the
-# default-to-handle logic below covers it.
-while IFS=',' read -r handle github_user email cohort neon_branch; do
+# We read 6 fields. 4- and 5-column rows leave the trailing fields empty;
+# the default-fallback logic below covers them.
+while IFS=',' read -r handle github_user email cohort neon_branch github_full_repo; do
   # Strip whitespace and CR (Windows line endings)
   handle="$(echo "$handle" | tr -d '[:space:]\r')"
   github_user="$(echo "$github_user" | tr -d '[:space:]\r')"
   email="$(echo "$email" | tr -d '[:space:]\r')"
   cohort="$(echo "$cohort" | tr -d '[:space:]\r')"
   neon_branch="$(echo "${neon_branch:-}" | tr -d '[:space:]\r')"
+  github_full_repo="$(echo "${github_full_repo:-}" | tr -d '[:space:]\r')"
 
   if [[ -z "$handle" || -z "$cohort" ]]; then
     continue
@@ -145,6 +161,26 @@ while IFS=',' read -r handle github_user email cohort neon_branch; do
     echo "       must be 1-63 chars, alphanumeric + hyphen + underscore only" >&2
     exit 2
   fi
+
+  # Default github_full_repo to "<github_user>/agile-flow-gcp" when not set.
+  # That preserves today's behavior for personal-fork participants.
+  if [[ -z "$github_full_repo" ]]; then
+    github_full_repo="${github_user}/agile-flow-gcp"
+  fi
+
+  # Validate <owner>/<repo> shape. GitHub owner: alphanumeric + hyphens
+  # (1-39 chars). Repo: alphanumeric + dot + hyphen + underscore (1-100).
+  # Strict check rejects empty fragments, double slashes, leading/trailing
+  # whitespace (already stripped above), etc.
+  if ! [[ "$github_full_repo" =~ ^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$ ]]; then
+    echo "ERROR: invalid github_full_repo '$github_full_repo' for handle '$handle'" >&2
+    echo "       must be <owner>/<repo> with allowed chars only" >&2
+    exit 2
+  fi
+
+  # Split into owner and repo for env-var passthrough.
+  github_owner="${github_full_repo%%/*}"
+  github_repo="${github_full_repo##*/}"
 
   total=$((total + 1))
   project_id="af-${handle}-${cohort}"
@@ -167,10 +203,15 @@ while IFS=',' read -r handle github_user email cohort neon_branch; do
   fi
 
   # Run the inner provisioner. It handles "already exists" internally;
-  # we just pass through the env it needs. GITHUB_USERNAME enables the
-  # WIF setup in Step 5.5 of the inner script — when empty, that step
-  # is skipped and the SA-key shortcut remains the auth fallback.
-  # NEON_BRANCH_NAME enables the Neon-branch-per-attendee step (#33).
+  # we just pass through the env it needs.
+  #
+  # GITHUB_OWNER + GITHUB_REPO together enable WIF setup (Step 5.5).
+  # Together they identify the GitHub repo whose Actions runs are
+  # trusted to impersonate the deployer SA. Empty owner skips the step.
+  # GITHUB_USERNAME is also exported as a legacy alias of GITHUB_OWNER
+  # for any external caller still relying on that env-var name.
+  #
+  # NEON_BRANCH_NAME enables the Neon-branch-per-attendee step (5.7).
   # NEON_API_KEY and NEON_PROJECT_ID are forwarded only if set in the
   # facilitator's environment; the inner script skips that step when
   # either is missing.
@@ -178,6 +219,8 @@ while IFS=',' read -r handle github_user email cohort neon_branch; do
   BILLING_ACCOUNT_ID="$BILLING_ACCOUNT_ID" \
   GCP_REGION="${GCP_REGION:-us-central1}" \
   ARTIFACT_REPO="${ARTIFACT_REPO:-agile-flow}" \
+  GITHUB_OWNER="$github_owner" \
+  GITHUB_REPO="$github_repo" \
   GITHUB_USERNAME="$github_user" \
   NEON_BRANCH_NAME="$neon_branch" \
   NEON_API_KEY="${NEON_API_KEY:-}" \

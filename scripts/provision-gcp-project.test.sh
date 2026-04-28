@@ -564,11 +564,17 @@ esac
 EOF
   chmod +x "$tmp/bin/gcloud"
 
+  # Args 2/3/4 are GITHUB_USERNAME / GITHUB_OWNER / GITHUB_REPO. Existing
+  # callers pass only GITHUB_USERNAME (legacy alias path); new callers
+  # can pass GITHUB_OWNER + GITHUB_REPO directly to test the modern path.
+  # Use ${var-default} (no colon) so explicit empty stays empty.
   set +e
   PATH="$tmp/bin:$PATH" \
     GCP_PROJECT_ID="af-wif-test" \
     BILLING_ACCOUNT_ID="FAKE" \
-    GITHUB_USERNAME="${2:-}" \
+    GITHUB_USERNAME="${2-}" \
+    GITHUB_OWNER="${3-}" \
+    GITHUB_REPO="${4-}" \
     "$SCRIPT" --create-project > "$tmp/stdout.log" 2>&1
   set -e
 
@@ -697,6 +703,41 @@ if grep -q "bind.*workloadIdentityUser" "$T14/stdout.log"; then
   PASS=$((PASS + 1))
 else
   echo -e "  ${RED}✗${NC} expected binding step to log [bind]"
+  FAIL=$((FAIL + 1))
+fi
+
+# ── Test 14b: GITHUB_OWNER + GITHUB_REPO (org-fork path) ────────────────
+# Verifies the new env-var pair from #40. Owner is acme (an org); repo
+# name diverges from `agile-flow-gcp` because the participant renamed it.
+
+echo ""
+echo "Test 14b: Step 5.5 honors GITHUB_OWNER + GITHUB_REPO"
+
+# arg order: state, GITHUB_USERNAME, GITHUB_OWNER, GITHUB_REPO
+T14B=$(run_step5_5_test "absent" "" "acme" "widget-shop")
+
+if grep -q "bind.*<- acme/widget-shop" "$T14B/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} binding member is acme/widget-shop (not <user>/agile-flow-gcp)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[bind] ... <- acme/widget-shop' in stdout"
+  cat "$T14B/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# ── Test 14c: WIF skipped when neither GITHUB_OWNER nor GITHUB_USERNAME set ──
+
+echo ""
+echo "Test 14c: Step 5.5 skipped when both GITHUB_OWNER and GITHUB_USERNAME unset"
+
+T14C=$(run_step5_5_test "absent" "" "" "")
+
+if grep -q "skip.*WIF setup not requested" "$T14C/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip message logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip] WIF setup not requested' in stdout"
+  cat "$T14C/stdout.log"
   FAIL=$((FAIL + 1))
 fi
 

@@ -15,12 +15,15 @@
 #   GCP_REGION           (default: us-central1)
 #   ARTIFACT_REPO        (default: agile-flow)
 #   BILLING_ACCOUNT_ID   (required if --create-project)
-#   GITHUB_USERNAME      (optional) Enables Step 5.5 (WIF setup). Pinned
-#                        to <user>/${WIF_REPO:-agile-flow-gcp}.
-#   WIF_REPO             (default: agile-flow-gcp) Override the repo name
-#                        WIF binds to. Workshop participants fork the
-#                        canonical template without renaming, so the
-#                        default fits.
+#   GITHUB_OWNER         (optional) GitHub owner of the participant's
+#                        fork. Personal username (alice-gh) or org (acme).
+#                        Required to enable Step 5.5 (WIF setup).
+#   GITHUB_REPO          (default: agile-flow-gcp) Repo name within
+#                        GITHUB_OWNER. Set when participants fork into
+#                        an org and rename the repo for their product.
+#   GITHUB_USERNAME      Legacy alias for GITHUB_OWNER. When GITHUB_OWNER
+#                        is unset, the script uses GITHUB_USERNAME as the
+#                        owner. Existing callers don't need to change.
 #   NEON_API_KEY         (optional) Enables Step 5.7 (Neon branch +
 #                        database-url Secret Manager). Required for
 #                        per-attendee branch automation.
@@ -302,31 +305,44 @@ for role in "${ROLES[@]}"; do
       --quiet >/dev/null
 done
 
-# ── Step 5.5: Workload Identity Federation (when GITHUB_USERNAME set) ────
+# ── Step 5.5: Workload Identity Federation (when GITHUB_OWNER set) ──────
 #
 # Trust GitHub Actions OIDC tokens from a specific repo so deploys can
 # impersonate the deployer SA without a long-lived JSON key. Gated on
-# GITHUB_USERNAME being set — when unset, this whole block is skipped
-# and the script's existing --with-sa-key path remains the auth fallback.
+# GITHUB_OWNER being set — when unset, this whole block is skipped and
+# the script's existing --with-sa-key path remains the auth fallback.
 #
-# WIF_REPO defaults to `agile-flow-gcp`. Workshop participants fork the
-# canonical template without renaming, so the binding pattern is always
-# <github_user>/agile-flow-gcp. Override WIF_REPO if you ever need a
-# different repo name (dry-run smoke, non-workshop callers).
+# Inputs (the wrapper sets these per row from roster.csv):
+#   GITHUB_OWNER     The GitHub owner of the participant's fork. May be
+#                    a personal username (alice-gh) or an organization
+#                    (acme). Required to enable Step 5.5.
+#   GITHUB_REPO      The repo name within the owner. Defaults to
+#                    'agile-flow-gcp' when unset.
+#   GITHUB_USERNAME  Legacy alias for GITHUB_OWNER. Used when GITHUB_OWNER
+#                    is unset, so external callers that set the older
+#                    name continue to work.
+#
+# Together they identify the GitHub repo whose Actions runs are trusted
+# to impersonate the deployer SA. Owners with org forks can rename their
+# repo (acme/widget-shop) and the binding still works because the
+# wrapper passes both fields explicitly.
 #
 # Google requires --attribute-condition on OIDC providers (it must
 # reference at least one provider claim). We use a trivially-true
 # condition (`assertion.repository != ''`) so the provider doesn't gate
-# access by org or repo — workshop participants fork under their
-# personal GitHub accounts, not the canonical org, and we cannot
-# enumerate every domain ahead of time. Trust scoping happens at the
-# IAM binding layer instead, where attribute.repository=<user>/<repo>
-# pins each binding to one specific repo.
+# access by org or repo — attendees may fork under any GitHub account
+# or org. Trust scoping happens at the IAM binding layer instead, where
+# attribute.repository=<owner>/<repo> pins each binding to one specific
+# repo.
 #
 # All three sub-steps (pool, provider, binding) are idempotent.
 
-if [[ -n "${GITHUB_USERNAME:-}" ]]; then
-  WIF_REPO="${WIF_REPO:-agile-flow-gcp}"
+# Resolve GITHUB_OWNER, falling back to GITHUB_USERNAME for backwards
+# compatibility with external callers from before #40.
+WIF_OWNER="${GITHUB_OWNER:-${GITHUB_USERNAME:-}}"
+WIF_REPO_NAME="${GITHUB_REPO:-agile-flow-gcp}"
+
+if [[ -n "$WIF_OWNER" ]]; then
   WIF_POOL="github"
   WIF_PROVIDER="github"
 
@@ -378,9 +394,9 @@ if [[ -n "${GITHUB_USERNAME:-}" ]]; then
   #
   # add-iam-policy-binding is idempotent — re-running with the same member
   # is a no-op.
-  WIF_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository/${GITHUB_USERNAME}/${WIF_REPO}"
+  WIF_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository/${WIF_OWNER}/${WIF_REPO_NAME}"
   for wif_role in roles/iam.workloadIdentityUser roles/iam.serviceAccountTokenCreator; do
-    echo "[bind] $wif_role <- ${GITHUB_USERNAME}/${WIF_REPO}"
+    echo "[bind] $wif_role <- ${WIF_OWNER}/${WIF_REPO_NAME}"
     gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
       --role="$wif_role" \
       --member="$WIF_MEMBER" \
@@ -390,7 +406,7 @@ if [[ -n "${GITHUB_USERNAME:-}" ]]; then
 
   WIF_PROVIDER_RESOURCE="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/providers/${WIF_PROVIDER}"
 else
-  echo "[skip] WIF setup not requested (GITHUB_USERNAME unset)"
+  echo "[skip] WIF setup not requested (GITHUB_OWNER and GITHUB_USERNAME unset)"
 fi
 
 # ── Step 5.7: Neon branch + database-url Secret Manager ─────────────────
