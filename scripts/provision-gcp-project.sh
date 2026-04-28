@@ -350,15 +350,30 @@ if [[ -n "${GITHUB_USERNAME:-}" ]]; then
   fi
 
   # 5.5c: Bind the deployer SA so the specific repo can impersonate it.
+  # google-github-actions/auth@v2 in impersonation mode (which our deploy
+  # workflow uses by passing both `workload_identity_provider` and
+  # `service_account`) needs TWO roles:
+  #
+  #   roles/iam.workloadIdentityUser    — lets the federated identity
+  #                                        authenticate AS the SA via WIF
+  #   roles/iam.serviceAccountTokenCreator — lets the federated identity
+  #                                        MINT access tokens for the SA
+  #                                        (gcloud auth, docker push, etc.)
+  #
+  # Granting only the first leaves the deploy step's docker-push call
+  # failing with `iam.serviceAccounts.getAccessToken denied`.
+  #
   # add-iam-policy-binding is idempotent — re-running with the same member
   # is a no-op.
   WIF_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository/${GITHUB_USERNAME}/${WIF_REPO}"
-  echo "[bind] roles/iam.workloadIdentityUser <- ${GITHUB_USERNAME}/${WIF_REPO}"
-  gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
-    --role="roles/iam.workloadIdentityUser" \
-    --member="$WIF_MEMBER" \
-    --project="$GCP_PROJECT_ID" \
-    --quiet >/dev/null
+  for wif_role in roles/iam.workloadIdentityUser roles/iam.serviceAccountTokenCreator; do
+    echo "[bind] $wif_role <- ${GITHUB_USERNAME}/${WIF_REPO}"
+    gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+      --role="$wif_role" \
+      --member="$WIF_MEMBER" \
+      --project="$GCP_PROJECT_ID" \
+      --quiet >/dev/null
+  done
 
   WIF_PROVIDER_RESOURCE="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/providers/${WIF_PROVIDER}"
 else

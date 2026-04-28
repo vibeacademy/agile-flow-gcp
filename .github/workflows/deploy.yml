@@ -117,6 +117,12 @@ jobs:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.GCP_REGION }}
           image: ${{ steps.build.outputs.image }}
+          # Pin the runtime SA to the deployer SA. By default Cloud Run
+          # uses the legacy Compute Engine default SA at runtime, which
+          # has none of the roles we provisioned (e.g. secretAccessor).
+          # Using one SA for deploy + runtime keeps the audit trail clear
+          # and avoids granting roles to a default SA we did not create.
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
           flags: |
             --port=8080
             --memory=512Mi

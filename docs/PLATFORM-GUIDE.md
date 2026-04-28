@@ -206,12 +206,16 @@ gcloud iam workload-identity-pools providers create-oidc github \
 # Get the project number (different from project ID)
 PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
 
-# Allow the GitHub repo to impersonate the deployer service account
-gcloud iam service-accounts add-iam-policy-binding \
-  "deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/GITHUB_USER/REPO_NAME" \
-  --project=YOUR_PROJECT_ID
+# Allow the GitHub repo to impersonate the deployer service account.
+# Two roles are required: workloadIdentityUser to authenticate as the SA,
+# and serviceAccountTokenCreator to mint access tokens (gcloud, docker push).
+for role in roles/iam.workloadIdentityUser roles/iam.serviceAccountTokenCreator; do
+  gcloud iam service-accounts add-iam-policy-binding \
+    "deployer@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+    --role="$role" \
+    --member="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/GITHUB_USER/REPO_NAME" \
+    --project=YOUR_PROJECT_ID
+done
 ```
 
 The WIF provider resource name to paste into GitHub secrets is:

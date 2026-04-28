@@ -640,6 +640,24 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Both WIF roles must be bound. workloadIdentityUser alone leaves the deploy
+# step unable to mint access tokens for docker push. We learned that the
+# hard way during smoke 2026-04-28.
+if grep -q "\[bind\] roles/iam.workloadIdentityUser <- alice-gh/agile-flow-gcp" "$T13/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} workloadIdentityUser binding logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[bind] roles/iam.workloadIdentityUser <- alice-gh/agile-flow-gcp'"
+  FAIL=$((FAIL + 1))
+fi
+if grep -q "\[bind\] roles/iam.serviceAccountTokenCreator <- alice-gh/agile-flow-gcp" "$T13/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} serviceAccountTokenCreator binding logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[bind] roles/iam.serviceAccountTokenCreator <- alice-gh/agile-flow-gcp'"
+  FAIL=$((FAIL + 1))
+fi
+
 # Final summary line should print the WIF provider resource path with project number 12345
 if grep -q "GCP_WORKLOAD_IDENTITY_PROVIDER = projects/12345/locations/global/workloadIdentityPools/github/providers/github" "$T13/stdout.log"; then
   echo -e "  ${GREEN}✓${NC} final summary prints concrete WIF provider resource"
