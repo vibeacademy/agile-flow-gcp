@@ -219,6 +219,27 @@ ec=$?
 assert_eq "2" "$ec" "exit 2 on empty roster"
 assert_contains "fail.*roster has no data rows" "$T6/stdout.log" "logs empty-roster failure"
 
+# ── Test 7: 5-column header is accepted by pre-flight ───────────────────
+
+echo ""
+echo "Test 7: 5-column roster header passes pre-flight"
+
+T7=$(new_tmp)
+make_stubs "$T7" "ok"
+cat > "$T7/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch
+alice,alice-gh,alice@example.com,2026-05,
+EOF
+
+PATH="$T7/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  ROSTER_WRAPPER="$T7/bin/roster-wrapper.sh" \
+  "$SCRIPT" "$T7/roster.csv" > "$T7/stdout.log" 2>&1
+ec=$?
+
+assert_eq "0" "$ec" "exit 0 with 5-column header"
+assert_contains "ok.*roster header is valid" "$T7/stdout.log" "logs header ok"
+
 # ── Summary ─────────────────────────────────────────────────────────────
 
 echo ""

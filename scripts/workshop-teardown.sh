@@ -49,11 +49,16 @@ if [[ ! -f "$ROSTER_CSV" ]]; then
 fi
 
 # ── CSV header validation ───────────────────────────────────────────────
+# Accept both 4-column and 5-column shapes. Teardown only reads handle and
+# cohort to compute project IDs; the 5th column is ignored here.
 
-EXPECTED_HEADER="handle,github_user,email,cohort"
+EXPECTED_HEADER_4="handle,github_user,email,cohort"
+EXPECTED_HEADER_5="handle,github_user,email,cohort,neon_branch"
 ACTUAL_HEADER="$(head -n 1 "$ROSTER_CSV" | tr -d '\r')"
-if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER" ]]; then
-  echo "ERROR: roster CSV header must be exactly: $EXPECTED_HEADER" >&2
+if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER_4" && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_5" ]]; then
+  echo "ERROR: roster CSV header must be one of:" >&2
+  echo "       $EXPECTED_HEADER_4" >&2
+  echo "       $EXPECTED_HEADER_5" >&2
   echo "       got: $ACTUAL_HEADER" >&2
   exit 2
 fi
@@ -61,8 +66,12 @@ fi
 # ── Build project ID list from roster ────────────────────────────────────
 
 declare -a project_ids=()
-# shellcheck disable=SC2034  # github_user not needed; reserved per roster format
-while IFS=',' read -r handle github_user email cohort; do
+# Reads up to 5 fields. 4-column rows leave neon_branch empty (which we
+# ignore here — teardown only deletes GCP projects). 5-column rows have
+# the 5th value captured in neon_branch and are ignored too. Without
+# this 5th name, a 5-column row would leak the branch value into cohort.
+# shellcheck disable=SC2034  # github_user, email, neon_branch unused; required per roster format
+while IFS=',' read -r handle github_user email cohort neon_branch; do
   handle="$(echo "$handle" | tr -d '[:space:]\r')"
   cohort="$(echo "$cohort" | tr -d '[:space:]\r')"
   if [[ -z "$handle" || -z "$cohort" ]]; then

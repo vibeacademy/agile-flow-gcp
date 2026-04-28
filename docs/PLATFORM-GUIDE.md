@@ -327,7 +327,10 @@ discovering a missing auth token mid-loop.
 
 ### Roster format
 
-Create `roster.csv` with this exact header:
+`roster.csv` accepts two header shapes. Both have the same first four
+columns; the 5th is optional and used only by the Neon-branch automation.
+
+**Minimal (4 columns):**
 
 ```csv
 handle,github_user,email,cohort
@@ -335,16 +338,32 @@ alice,alice-gh,alice@example.com,2026-05
 bob,bob-gh,bob@example.com,2026-05
 ```
 
+**Extended (5 columns):**
+
+```csv
+handle,github_user,email,cohort,neon_branch
+alice,alice-gh,alice@example.com,2026-05,
+bob,bob-gh,bob@example.com,2026-05,bob_personal
+```
+
+Columns:
+
 - `handle` — short, lowercase, stable identifier; appears in the GCP project ID
-- `github_user` — reserved for future use (WIF binding, notification);
-  required in the row but not used by the current scripts
+- `github_user` — the participant's GitHub username; used to scope the
+  WIF binding to `<github_user>/agile-flow-gcp`
 - `email` — Google identity granted `roles/editor` on the new project
 - `cohort` — `YYYY-MM` of the workshop date; appears in the project ID
+- `neon_branch` *(optional, 5-column shape only)* — Neon branch name for
+  this attendee. When empty or absent, defaults to `handle`. Use the
+  override when the same person needs a stable branch across cohorts
+  (different `cohort`, same `neon_branch`). Must be 1-63 chars,
+  alphanumeric + hyphen + underscore.
 
 Project IDs follow the pattern `af-{handle}-{cohort}`. This shape is
 referenced from the facilitator runbook, the participant day-1 doc, and
 the dry-run checklist — do not change it. A working example lives at
-`scripts/roster.example.csv`.
+`scripts/roster.example.csv` (uses the 5-column shape with one default
+and one explicit override).
 
 ### Setup behavior
 
