@@ -21,10 +21,37 @@ jobs:
       PR_NUMBER: ${{ github.event.number }}
 
     steps:
+      - name: Check for required secrets
+        id: check_secrets
+        # GitHub Actions hard-rejects `secrets.*` in `if:` expressions, so
+        # we promote presence checks into outputs that downstream `if:`
+        # gates can read. `gcp_configured` gates GCP cleanup; `auth_method`
+        # selects between WIF and SA key; `neon_configured` gates the
+        # Neon branch deletion.
+        run: |
+          if [ -n "${{ secrets.GCP_PROJECT_ID }}" ]; then
+            echo "gcp_configured=true" >> "$GITHUB_OUTPUT"
+            if [ -n "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
+              echo "auth_method=wif" >> "$GITHUB_OUTPUT"
+            elif [ -n "${{ secrets.GCP_SA_KEY }}" ]; then
+              echo "auth_method=sa-key" >> "$GITHUB_OUTPUT"
+            else
+              echo "auth_method=none" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "gcp_configured=false" >> "$GITHUB_OUTPUT"
+            echo "auth_method=none" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "${{ secrets.NEON_API_KEY }}" ]; then
+            echo "neon_configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "neon_configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # ── Neon: delete the PR branch database ───────────────────────────
 
       - name: Delete Neon branch
-        if: secrets.NEON_API_KEY != ''
+        if: steps.check_secrets.outputs.neon_configured == 'true'
         uses: neondatabase/delete-branch-action@v3
         continue-on-error: true
         with:
@@ -35,20 +62,20 @@ jobs:
       # ── GCP: remove the Cloud Run revision tag ────────────────────────
 
       - name: Authenticate to Google Cloud (Workload Identity Federation)
-        if: secrets.GCP_PROJECT_ID != '' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: steps.check_secrets.outputs.auth_method == 'wif'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Authenticate to Google Cloud (Service Account Key fallback)
-        if: secrets.GCP_PROJECT_ID != '' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == '' && secrets.GCP_SA_KEY != ''
+        if: steps.check_secrets.outputs.auth_method == 'sa-key'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up gcloud
-        if: secrets.GCP_PROJECT_ID != ''
+        if: steps.check_secrets.outputs.gcp_configured == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       # Removing a revision tag stops routing traffic to the preview
@@ -58,7 +85,7 @@ jobs:
       # We don't delete the underlying revision because Cloud Run charges
       # nothing for inactive revisions and keeping them aids forensics.
       - name: Remove Cloud Run revision tag
-        if: secrets.GCP_PROJECT_ID != ''
+        if: steps.check_secrets.outputs.gcp_configured == 'true'
         continue-on-error: true
         run: |
           TAG="pr-${{ env.PR_NUMBER }}"

@@ -28,21 +28,33 @@ jobs:
 
     steps:
       - name: Check for required secrets
+        id: check_secrets
+        # GitHub Actions hard-rejects `secrets.*` in `if:` expressions, so
+        # we promote auth-method selection into an output. Rollback hard-
+        # requires GCP_PROJECT_ID; the step exits 1 if it is missing.
         run: |
           if [ -z "${{ secrets.GCP_PROJECT_ID }}" ]; then
             echo "GCP_PROJECT_ID is not configured. Cannot rollback."
             exit 1
           fi
+          if [ -n "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
+            echo "auth_method=wif" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ secrets.GCP_SA_KEY }}" ]; then
+            echo "auth_method=sa-key" >> "$GITHUB_OUTPUT"
+          else
+            echo "Neither GCP_WORKLOAD_IDENTITY_PROVIDER nor GCP_SA_KEY configured. Cannot rollback."
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud (Workload Identity Federation)
-        if: secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
+        if: steps.check_secrets.outputs.auth_method == 'wif'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Authenticate to Google Cloud (Service Account Key fallback)
-        if: secrets.GCP_WORKLOAD_IDENTITY_PROVIDER == '' && secrets.GCP_SA_KEY != ''
+        if: steps.check_secrets.outputs.auth_method == 'sa-key'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
