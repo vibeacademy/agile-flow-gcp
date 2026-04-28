@@ -73,7 +73,11 @@ jobs:
         with:
           project_id: ${{ secrets.NEON_PROJECT_ID }}
           branch_name: pr-${{ env.PR_NUMBER }}
-          parent: main
+          # Workshop forks set NEON_PARENT_BRANCH to the attendee's branch name
+          # (e.g. "alice") so per-PR previews inherit that attendee's schema.
+          # Non-workshop forks leave it unset and fall back to "main".
+          # `||` is fine inside `with:` — only `if:` rejects `secrets.*`.
+          parent: ${{ secrets.NEON_PARENT_BRANCH || 'main' }}
           username: ${{ vars.NEON_DB_USER || 'neondb_owner' }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
