@@ -64,7 +64,7 @@ EOF
 #!/usr/bin/env bash
 # Log every invocation along with the env vars the wrapper is supposed
 # to forward. Tests grep this log to verify per-row env passthrough.
-echo "provision \$* GCP_PROJECT_ID=\${GCP_PROJECT_ID:-} GITHUB_USERNAME=\${GITHUB_USERNAME:-} NEON_BRANCH_NAME=\${NEON_BRANCH_NAME:-}" >> "$tmp/provision.log"
+echo "provision \$* GCP_PROJECT_ID=\${GCP_PROJECT_ID:-} GITHUB_USERNAME=\${GITHUB_USERNAME:-} GITHUB_OWNER=\${GITHUB_OWNER:-} GITHUB_REPO=\${GITHUB_REPO:-} NEON_BRANCH_NAME=\${NEON_BRANCH_NAME:-}" >> "$tmp/provision.log"
 
 if [[ "$behavior" == "fail" ]]; then
   echo "fake provision failure" >&2
@@ -351,6 +351,109 @@ set -e
 
 assert_eq "2" "$exit_code" "wrapper exits 2 on invalid neon_branch"
 assert_contains "invalid neon_branch" "$T8/stdout.log" "error message names the field"
+
+# ── Test 9: 6-column header + explicit github_full_repo passes through ──
+#
+# Verifies that:
+#   - 6-column header is accepted
+#   - github_full_repo splits at slash; owner+repo exported separately
+#   - alice's row uses an org owner (acme); bob's row uses a different owner
+
+echo ""
+echo "Test 9: 6-column header forwards GITHUB_OWNER + GITHUB_REPO"
+
+T9=$(new_tmp)
+make_stubs "$T9" "ok"
+cat > "$T9/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo
+alice,alice-gh,alice@acme.com,2026-05,alice,acme/agile-flow-alice
+bob,bob-gh,bob@acme.com,2026-05,bob,acme/widget-shop
+EOF
+
+set +e
+PATH="$T9/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T9/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T9/roster-output.csv" \
+  "$WRAPPER" "$T9/roster.csv" > "$T9/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with 6-column header"
+assert_contains "GCP_PROJECT_ID=af-alice-2026-05.*GITHUB_OWNER=acme.*GITHUB_REPO=agile-flow-alice" "$T9/provision.log" "alice row exports acme owner + alice repo"
+assert_contains "GCP_PROJECT_ID=af-bob-2026-05.*GITHUB_OWNER=acme.*GITHUB_REPO=widget-shop" "$T9/provision.log" "bob row exports acme owner + widget-shop repo"
+
+# ── Test 10: empty github_full_repo defaults to <github_user>/agile-flow-gcp ──
+
+echo ""
+echo "Test 10: empty github_full_repo defaults to <github_user>/agile-flow-gcp"
+
+T10=$(new_tmp)
+make_stubs "$T10" "ok"
+cat > "$T10/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo
+carol,carol-gh,carol@example.com,2026-05,carol,
+EOF
+
+set +e
+PATH="$T10/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T10/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T10/roster-output.csv" \
+  "$WRAPPER" "$T10/roster.csv" > "$T10/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with empty github_full_repo"
+assert_contains "GITHUB_OWNER=carol-gh.*GITHUB_REPO=agile-flow-gcp" "$T10/provision.log" "defaults to <github_user>/agile-flow-gcp"
+
+# ── Test 11: invalid github_full_repo fails fast ────────────────────────
+
+echo ""
+echo "Test 11: invalid github_full_repo fails the row fast"
+
+T11=$(new_tmp)
+make_stubs "$T11" "ok"
+# Use a value with double slash, which the regex rejects.
+cat > "$T11/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo
+alice,alice-gh,alice@acme.com,2026-05,alice,acme//bad-repo
+EOF
+
+set +e
+PATH="$T11/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T11/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T11/roster-output.csv" \
+  "$WRAPPER" "$T11/roster.csv" > "$T11/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "2" "$exit_code" "wrapper exits 2 on invalid github_full_repo"
+assert_contains "invalid github_full_repo" "$T11/stdout.log" "error message names the field"
+
+# ── Test 12: 4-column legacy roster — github_full_repo defaults work ────
+
+echo ""
+echo "Test 12: 4-column header still works (defaults github_full_repo)"
+
+T12=$(new_tmp)
+make_stubs "$T12" "ok"
+write_roster "$T12/roster.csv"  # 4-column
+
+set +e
+PATH="$T12/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T12/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T12/roster-output.csv" \
+  "$WRAPPER" "$T12/roster.csv" > "$T12/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with 4-column header"
+# alice/bob should both default to <user>/agile-flow-gcp
+assert_contains "GITHUB_OWNER=alice-gh.*GITHUB_REPO=agile-flow-gcp" "$T12/provision.log" "alice defaults to alice-gh/agile-flow-gcp"
+assert_contains "GITHUB_OWNER=bob-gh.*GITHUB_REPO=agile-flow-gcp" "$T12/provision.log" "bob defaults to bob-gh/agile-flow-gcp"
 
 # ── Summary ──────────────────────────────────────────────────────────────
 

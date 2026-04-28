@@ -130,20 +130,23 @@ either system — just secret values.
 
 **End-to-end for one participant (`bob`):**
 
-1. Facilitator runs `provision-workshop-roster.sh` → `af-bob-2026-05` exists with the deployer SA.
-2. Facilitator runs the WIF setup in Step 5 below, plugging in `bob-gh/agile-flow-gcp` as the GitHub repo. This creates the trust relationship: "GitHub Actions runs in `bob-gh/agile-flow-gcp` may impersonate `deployer@af-bob-2026-05`."
+1. Facilitator's roster has bob's row with `github_full_repo=acme/widget-shop` (or empty, defaulting to `bob-gh/agile-flow-gcp` for personal forks).
+2. Facilitator runs `provision-workshop-roster.sh` → `af-bob-2026-05` exists with the deployer SA, and Step 5.5 binds the WIF trust to whatever GitHub repo bob's row specified.
 3. Facilitator emails bob the four secret values. (Template in `agile-flow-meta/docs/workshops/gcp-facilitator-runbook.md` §7.)
-4. Bob forks `vibeacademy/agile-flow-gcp` to his account, pastes the four secrets, pushes a trivial change to `main`. The deploy workflow uses WIF to assume the deployer SA and ships the container to bob's project.
+4. Bob forks `vibeacademy/agile-flow-gcp` (to his account or his org), pastes the four secrets, pushes a trivial change to `main`. The deploy workflow uses WIF to assume the deployer SA and ships the container to bob's project.
 
-**The most common participant footgun:** if bob renames his fork (e.g.
-`bob-gh/my-cool-project`), WIF auth fails because the trust binding
-names `bob-gh/agile-flow-gcp` exactly. Tell participants in their
-day-1 email: do not rename the fork.
+**The most common participant footgun:** if the GitHub fork's owner/repo
+doesn't match what the roster said, WIF auth fails because the trust
+binding names a specific `<owner>/<repo>` exactly. Coordinate with
+participants before provisioning: where will they fork (personal vs
+org), and will they rename the repo? The `github_full_repo` column in
+the roster captures the answer.
 
-As of #5, WIF setup is automatic per-project — the four secrets above
-fall out of `provision-gcp-project.sh` Step 5.5 when `GITHUB_USERNAME`
-is set. The workshop wrapper exports it automatically per CSV row.
-See Step 5 below for details.
+As of #5/#40, WIF setup is automatic per-project — the four secrets
+above fall out of `provision-gcp-project.sh` Step 5.5 when
+`GITHUB_OWNER` (or its legacy alias `GITHUB_USERNAME`) is set. The
+workshop wrapper exports both `GITHUB_OWNER` and `GITHUB_REPO` per
+CSV row. See Step 5 below for details.
 
 ---
 
@@ -154,14 +157,24 @@ without storing a long-lived service account key. This is the best
 practice and should be your default.
 
 **As of `provision-gcp-project.sh` Step 5.5, this is automatic per
-project.** Set `GITHUB_USERNAME` and the script creates the pool, the
-OIDC provider, and the IAM binding scoped to
-`<github_user>/agile-flow-gcp`.
+project.** Set `GITHUB_OWNER` and `GITHUB_REPO` and the script creates
+the pool, the OIDC provider, and the IAM binding scoped to
+`<owner>/<repo>`. `GITHUB_USERNAME` continues to work as a legacy alias
+for `GITHUB_OWNER` so older callers don't need to change.
 
 ```bash
+# Personal fork
 GCP_PROJECT_ID=af-alice-2026-05 \
 BILLING_ACCOUNT_ID=XXX-XXXX-XXXX \
-GITHUB_USERNAME=alice-gh \
+GITHUB_OWNER=alice-gh \
+GITHUB_REPO=agile-flow-gcp \
+  ./scripts/provision-gcp-project.sh --create-project
+
+# Org fork with renamed repo
+GCP_PROJECT_ID=af-alice-2026-05 \
+BILLING_ACCOUNT_ID=XXX-XXXX-XXXX \
+GITHUB_OWNER=acme \
+GITHUB_REPO=widget-shop \
   ./scripts/provision-gcp-project.sh --create-project
 ```
 
@@ -169,17 +182,19 @@ The script's "Next steps" output prints the exact `GCP_WORKLOAD_IDENTITY_PROVIDE
 and `GCP_SERVICE_ACCOUNT` values to paste into the participant's fork
 secrets — no copying from this doc, no project-number arithmetic.
 
-The workshop wrapper (`provision-workshop-roster.sh`) reads `github_user`
-from each `roster.csv` row and exports `GITHUB_USERNAME` automatically,
-so a facilitator running the canonical workshop flow never needs to
-think about WIF setup at all. The wrapper also records the WIF provider
-resource string in `roster-output.csv` per row.
+The workshop wrapper (`provision-workshop-roster.sh`) splits the
+`github_full_repo` CSV column at the slash and exports `GITHUB_OWNER`
+and `GITHUB_REPO` automatically, so a facilitator running the canonical
+workshop flow never needs to think about WIF setup at all. The wrapper
+also records the WIF provider resource string in `roster-output.csv`
+per row.
 
-> **Don't rename the fork.** The IAM binding is pinned to
-> `<github_user>/agile-flow-gcp` exactly. If a participant renames their
-> fork (e.g. `bob-gh/my-cool-project`), WIF auth fails on first deploy
-> with a clear error from `google-github-actions/auth`. Tell participants
-> in their day-1 email: fork as-is, do not rename.
+> **The fork's owner/repo must match the roster.** The IAM binding is
+> pinned to `<github_owner>/<github_repo>` exactly. If a participant's
+> actual fork lives at a different path than the roster's
+> `github_full_repo` says, WIF auth fails on first deploy. Confirm
+> with each participant before provisioning: which GitHub
+> account/org will they fork into, and what will the repo be named?
 
 #### Manual fallback (rarely needed)
 
@@ -363,8 +378,8 @@ discovering a missing auth token mid-loop.
 
 ### Roster format
 
-`roster.csv` accepts two header shapes. Both have the same first four
-columns; the 5th is optional and used only by the Neon-branch automation.
+`roster.csv` accepts three header shapes. The first four columns are
+required; the 5th and 6th are optional automation columns.
 
 **Minimal (4 columns):**
 
@@ -374,7 +389,7 @@ alice,alice-gh,alice@example.com,2026-05
 bob,bob-gh,bob@example.com,2026-05
 ```
 
-**Extended (5 columns):**
+**With Neon branch override (5 columns):**
 
 ```csv
 handle,github_user,email,cohort,neon_branch
@@ -382,24 +397,38 @@ alice,alice-gh,alice@example.com,2026-05,
 bob,bob-gh,bob@example.com,2026-05,bob_personal
 ```
 
+**With Neon + GitHub repo override (6 columns):**
+
+```csv
+handle,github_user,email,cohort,neon_branch,github_full_repo
+alice,alice-gh,alice@acme.com,2026-05,alice,acme/agile-flow-alice
+bob,bob-gh,bob@acme.com,2026-05,bob,acme/widget-shop
+carol,carol-gh,carol@example.com,2026-05,carol,
+```
+
 Columns:
 
 - `handle` — short, lowercase, stable identifier; appears in the GCP project ID
-- `github_user` — the participant's GitHub username; used to scope the
-  WIF binding to `<github_user>/agile-flow-gcp`
+- `github_user` — the participant's GitHub username; used as the default
+  GitHub owner for the WIF binding when `github_full_repo` is empty
 - `email` — Google identity granted `roles/editor` on the new project
-- `cohort` — `YYYY-MM` of the workshop date; appears in the project ID
-- `neon_branch` *(optional, 5-column shape only)* — Neon branch name for
-  this attendee. When empty or absent, defaults to `handle`. Use the
-  override when the same person needs a stable branch across cohorts
-  (different `cohort`, same `neon_branch`). Must be 1-63 chars,
-  alphanumeric + hyphen + underscore.
+- `cohort` — `YYYY-MM` of the workshop date; appears in the GCP project ID
+- `neon_branch` *(optional)* — Neon branch name for this attendee. When
+  empty or absent, defaults to `handle`. Use the override when the same
+  person needs a stable branch across cohorts (different `cohort`, same
+  `neon_branch`). Must be 1-63 chars, alphanumeric + hyphen + underscore.
+- `github_full_repo` *(optional, 6-column shape only)* — `<owner>/<repo>`
+  identifying the participant's fork. Use the override when attendees
+  fork into their organization's GitHub (e.g., `acme/widget-shop`) and
+  rename the repo to fit their product. When empty or absent, defaults
+  to `<github_user>/agile-flow-gcp` (the personal-fork pattern).
+  Validation: `^[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$`.
 
 Project IDs follow the pattern `af-{handle}-{cohort}`. This shape is
 referenced from the facilitator runbook, the participant day-1 doc, and
 the dry-run checklist — do not change it. A working example lives at
-`scripts/roster.example.csv` (uses the 5-column shape with one default
-and one explicit override).
+`scripts/roster.example.csv` (uses the 6-column shape with two org-fork
+rows and one personal-fork default).
 
 ### Setup behavior
 

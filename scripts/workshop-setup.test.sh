@@ -240,6 +240,27 @@ ec=$?
 assert_eq "0" "$ec" "exit 0 with 5-column header"
 assert_contains "ok.*roster header is valid" "$T7/stdout.log" "logs header ok"
 
+# ── Test 8: 6-column header is accepted by pre-flight ───────────────────
+
+echo ""
+echo "Test 8: 6-column roster header passes pre-flight"
+
+T8=$(new_tmp)
+make_stubs "$T8" "ok"
+cat > "$T8/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo
+alice,alice-gh,alice@acme.com,2026-05,alice,acme/agile-flow-alice
+EOF
+
+PATH="$T8/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  ROSTER_WRAPPER="$T8/bin/roster-wrapper.sh" \
+  "$SCRIPT" "$T8/roster.csv" > "$T8/stdout.log" 2>&1
+ec=$?
+
+assert_eq "0" "$ec" "exit 0 with 6-column header"
+assert_contains "ok.*roster header is valid" "$T8/stdout.log" "logs header ok"
+
 # ── Summary ─────────────────────────────────────────────────────────────
 
 echo ""

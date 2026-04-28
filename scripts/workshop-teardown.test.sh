@@ -242,6 +242,27 @@ ec=$?
 assert_eq "0" "$ec" "exit 0 with 5-column header"
 assert_eq "2" "$(grep -c 'projects delete' "$T7/gcloud.log")" "both rows still attempted (5th column ignored)"
 
+# ── Test 8: 6-column roster is accepted ─────────────────────────────────
+
+echo ""
+echo "Test 8: 6-column roster header is accepted"
+
+T8=$(new_tmp)
+make_stubs "$T8" "all-active"
+cat > "$T8/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo
+alice,alice-gh,alice@acme.com,2026-05,alice,acme/agile-flow-alice
+bob,bob-gh,bob@acme.com,2026-05,bob,acme/widget-shop
+EOF
+
+PATH="$T8/bin:$PATH" \
+  OUTPUT_CSV="$T8/roster-output.csv" \
+  "$SCRIPT" "$T8/roster.csv" --yes > "$T8/stdout.log" 2>&1
+ec=$?
+
+assert_eq "0" "$ec" "exit 0 with 6-column header"
+assert_eq "2" "$(grep -c 'projects delete' "$T8/gcloud.log")" "both rows still attempted (6th column ignored)"
+
 # ── Summary ─────────────────────────────────────────────────────────────
 
 echo ""

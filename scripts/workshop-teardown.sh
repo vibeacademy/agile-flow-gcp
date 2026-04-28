@@ -54,11 +54,15 @@ fi
 
 EXPECTED_HEADER_4="handle,github_user,email,cohort"
 EXPECTED_HEADER_5="handle,github_user,email,cohort,neon_branch"
+EXPECTED_HEADER_6="handle,github_user,email,cohort,neon_branch,github_full_repo"
 ACTUAL_HEADER="$(head -n 1 "$ROSTER_CSV" | tr -d '\r')"
-if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER_4" && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_5" ]]; then
+if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER_4" \
+   && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_5" \
+   && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_6" ]]; then
   echo "ERROR: roster CSV header must be one of:" >&2
   echo "       $EXPECTED_HEADER_4" >&2
   echo "       $EXPECTED_HEADER_5" >&2
+  echo "       $EXPECTED_HEADER_6" >&2
   echo "       got: $ACTUAL_HEADER" >&2
   exit 2
 fi
@@ -66,12 +70,13 @@ fi
 # ── Build project ID list from roster ────────────────────────────────────
 
 declare -a project_ids=()
-# Reads up to 5 fields. 4-column rows leave neon_branch empty (which we
-# ignore here — teardown only deletes GCP projects). 5-column rows have
-# the 5th value captured in neon_branch and are ignored too. Without
-# this 5th name, a 5-column row would leak the branch value into cohort.
-# shellcheck disable=SC2034  # github_user, email, neon_branch unused; required per roster format
-while IFS=',' read -r handle github_user email cohort neon_branch; do
+# Reads up to 6 fields. 4- and 5-column rows leave the trailing fields
+# empty (we don't use them for teardown — only handle + cohort are
+# needed to compute project IDs). 6-column rows have github_full_repo
+# captured and ignored. Without these names, a 6-column row would leak
+# its trailing values into cohort.
+# shellcheck disable=SC2034  # github_user, email, neon_branch, github_full_repo unused; required per roster format
+while IFS=',' read -r handle github_user email cohort neon_branch github_full_repo; do
   handle="$(echo "$handle" | tr -d '[:space:]\r')"
   cohort="$(echo "$cohort" | tr -d '[:space:]\r')"
   if [[ -z "$handle" || -z "$cohort" ]]; then

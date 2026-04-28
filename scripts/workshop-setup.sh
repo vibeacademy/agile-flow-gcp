@@ -89,13 +89,17 @@ if [[ ! -f "$ROSTER_CSV" ]]; then
 else
   expected_header_4="handle,github_user,email,cohort"
   expected_header_5="handle,github_user,email,cohort,neon_branch"
+  expected_header_6="handle,github_user,email,cohort,neon_branch,github_full_repo"
   actual_header="$(head -n 1 "$ROSTER_CSV" | tr -d '\r')"
-  if [[ "$actual_header" == "$expected_header_4" || "$actual_header" == "$expected_header_5" ]]; then
+  if [[ "$actual_header" == "$expected_header_4" \
+     || "$actual_header" == "$expected_header_5" \
+     || "$actual_header" == "$expected_header_6" ]]; then
     echo "  [ok]   roster header is valid"
   else
     echo "  [fail] roster header must be one of:" >&2
     echo "           $expected_header_4" >&2
     echo "           $expected_header_5" >&2
+    echo "           $expected_header_6" >&2
     echo "         got: $actual_header" >&2
     fail=1
   fi
