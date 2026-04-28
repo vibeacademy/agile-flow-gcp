@@ -620,6 +620,17 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# create-oidc must include --attribute-condition. Google requires it; we
+# learned that the hard way when a real-GCP run failed with INVALID_ARGUMENT.
+if grep -q "providers create-oidc.*attribute-condition" "$T13/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} create-oidc invoked with --attribute-condition"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected --attribute-condition on create-oidc call; got:"
+  grep "create-oidc" "$T13/gcloud.log" || echo "(no create-oidc call found)"
+  FAIL=$((FAIL + 1))
+fi
+
 if grep -q "alice-gh/agile-flow-gcp" "$T13/stdout.log"; then
   echo -e "  ${GREEN}✓${NC} binding log names alice-gh/agile-flow-gcp (default WIF_REPO)"
   PASS=$((PASS + 1))

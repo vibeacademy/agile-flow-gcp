@@ -301,11 +301,14 @@ done
 # <github_user>/agile-flow-gcp. Override WIF_REPO if you ever need a
 # different repo name (dry-run smoke, non-workshop callers).
 #
-# We deliberately do NOT add --attribute-condition restricting to a
-# specific GitHub org — workshop participants fork under their personal
-# accounts, not the canonical org. Access is scoped at the IAM binding
-# layer instead, where attribute.repository=<user>/agile-flow-gcp
-# pins the trust to one specific repo.
+# Google requires --attribute-condition on OIDC providers (it must
+# reference at least one provider claim). We use a trivially-true
+# condition (`assertion.repository != ''`) so the provider doesn't gate
+# access by org or repo — workshop participants fork under their
+# personal GitHub accounts, not the canonical org, and we cannot
+# enumerate every domain ahead of time. Trust scoping happens at the
+# IAM binding layer instead, where attribute.repository=<user>/<repo>
+# pins each binding to one specific repo.
 #
 # All three sub-steps (pool, provider, binding) are idempotent.
 
@@ -342,6 +345,7 @@ if [[ -n "${GITHUB_USERNAME:-}" ]]; then
       --location=global \
       --issuer-uri="https://token.actions.githubusercontent.com" \
       --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor" \
+      --attribute-condition="assertion.repository != ''" \
       --project="$GCP_PROJECT_ID"
   fi
 

@@ -200,6 +200,7 @@ gcloud iam workload-identity-pools providers create-oidc github \
   --location=global \
   --issuer-uri="https://token.actions.githubusercontent.com" \
   --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor" \
+  --attribute-condition="assertion.repository != ''" \
   --project=YOUR_PROJECT_ID
 
 # Get the project number (different from project ID)
