@@ -1050,6 +1050,10 @@ case "\$1 \$2" in
         # Emulate display-name filter by branching on the canned state.
         case "$budget_state" in
           exists) echo "billingAccounts/FAKE/budgets/abcdef" ;;
+          permission-denied)
+            echo "ERROR: (gcloud.billing.budgets.list) [teddy@example.com] does not have permission to access billingAccounts instance [FAKE] (or it may not exist): missing roles/billing.costsManager" >&2
+            exit 1
+            ;;
           *)      ;;  # absent → empty output
         esac
         exit 0
@@ -1179,6 +1183,43 @@ if ! grep -q "billing budgets create" "$T20/gcloud.log"; then
   PASS=$((PASS + 1))
 else
   echo -e "  ${RED}✗${NC} budgets create should NOT have run when budget already exists"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 20b: budget list fails (permission denied) → surface the error,
+# don't swallow it. This is the silent-failure path that bit the dry-run
+# on 2026-04-28 — `2>/dev/null | head` plus `set -euo pipefail` killed
+# the wrapper mid-row-1 with no diagnostic, leaving the remaining roster
+# rows un-provisioned and `roster-output.csv` empty.
+
+echo ""
+echo "Test 20b: Step 5.6 surfaces gcloud billing list errors instead of swallowing them"
+
+T20B=$(run_step5_6_test "permission-denied" "25")
+
+if grep -q "gcloud billing budgets list failed" "$T20B/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} explicit error message logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'gcloud billing budgets list failed' in stderr"
+  cat "$T20B/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "roles/billing.costsManager" "$T20B/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} error names the missing role"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected error to mention roles/billing.costsManager"
+  FAIL=$((FAIL + 1))
+fi
+
+# The original gcloud stderr must reach the user, not be swallowed.
+if grep -q "does not have permission to access billingAccounts" "$T20B/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} underlying gcloud error is visible to the user"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected the underlying gcloud error to be relayed"
   FAIL=$((FAIL + 1))
 fi
 

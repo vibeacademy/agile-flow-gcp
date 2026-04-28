@@ -462,10 +462,34 @@ if [[ -n "${BUDGET_CAP_USD:-}" ]]; then
   # account and grep client-side. For a workshop billing account with
   # ~8 budgets that's fine; if this ever scales we can switch to the
   # `--filter` flag (which does a regex match on display name).
+  #
+  # Capture stderr to a tempfile and check the exit code explicitly. The
+  # earlier `2>/dev/null | head` pattern swallowed permission errors and
+  # let `set -euo pipefail` kill the script silently — facilitators saw
+  # the wrapper exit "without error" partway through row 1, leaving the
+  # remaining roster rows untouched. The most common cause is the
+  # facilitator account lacking `roles/billing.costsManager` on the
+  # billing account; we surface that with a pointer to the runbook.
+  budget_list_err="$(mktemp)"
+  budget_list_ec=0
   existing_budget="$(gcloud billing budgets list \
     --billing-account="$BILLING_ACCOUNT_ID" \
     --filter="displayName=${BUDGET_DISPLAY_NAME}" \
-    --format='value(name)' 2>/dev/null | head -n 1)"
+    --format='value(name)' 2> "$budget_list_err" | head -n 1)" || budget_list_ec=$?
+  if (( budget_list_ec != 0 )); then
+    echo "" >&2
+    echo "ERROR: gcloud billing budgets list failed (exit $budget_list_ec)" >&2
+    echo "       billing account: $BILLING_ACCOUNT_ID" >&2
+    echo "" >&2
+    cat "$budget_list_err" >&2
+    echo "" >&2
+    echo "  The facilitator account needs roles/billing.costsManager on the" >&2
+    echo "  billing account. See docs/PLATFORM-GUIDE.md > Budget guardrails." >&2
+    echo "  To skip this step, unset BUDGET_CAP_USD and re-run." >&2
+    rm -f "$budget_list_err"
+    exit 1
+  fi
+  rm -f "$budget_list_err"
 
   if [[ -n "$existing_budget" ]]; then
     echo "[skip] budget '${BUDGET_DISPLAY_NAME}' already exists (\$${BUDGET_CAP_USD} USD)"
