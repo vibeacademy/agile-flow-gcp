@@ -332,21 +332,27 @@ fi
 
 # ── Test 9-11: Step 1.5 domain-restricted-sharing override ──────────────
 #
-# The script's Step 1.5 has three branches:
-#   - override already in place (allValues=ALLOW)  → [skip]
-#   - constraint enforced, override not yet applied → set-policy is called
-#   - constraint not enforced at all                → [skip]
+# The script's Step 1.5 has TWO branches now (was three pre-2026-04-28).
+# Decision logic: read the project's effective policy via `describe`.
+#   - listPolicy.allValues == "ALLOW"  → [skip] (override already in place)
+#   - anything else (empty, RESTRICT, error) → [override] applied
 #
-# Each branch is exercised below. Stubs inject controlled responses to
-# `org-policies describe` and `org-policies list`, capture set-policy
-# calls in a log, and short-circuit before the real provisioning steps
-# (we exit the stub gcloud non-zero on `services` so the script aborts
-# before Step 2 — this is intentional: we only need to verify Step 1.5
-# behavior, not the whole flow).
+# Why "always apply when not ALLOW": the prior `org-policies list` probe
+# missed org-inherited constraints that don't show up at the project's
+# list view — workshop projects in an org with the constraint enforced
+# at the org level were silently left without the override, then failed
+# at the first external-domain IAM binding (e.g. Gmail user). The
+# `set-policy` call is itself idempotent on a project, so applying it
+# unconditionally on non-ALLOW is safe.
+#
+# Each branch is exercised below. Stubs inject controlled `describe`
+# output and short-circuit before the real provisioning steps (we exit
+# the stub gcloud non-zero on `services enable` so the script aborts
+# before Step 2).
 
 run_step1_5_test() {
   local label="$1"
-  local override_state="$2"   # "already-applied" | "enforced" | "not-enforced"
+  local describe_state="$2"   # "allow" | "empty" | "error"
   local tmp; tmp=$(mktemp -d -t aflowtest-XXXX)
   mkdir -p "$tmp/bin"
 
@@ -362,22 +368,22 @@ case "\$1 \$2" in
   "projects create") exit 0 ;;
   "billing projects") exit 0 ;;
   "resource-manager org-policies")
-    # Branch on subcommand
     case "\$3" in
       describe)
-        case "$override_state" in
-          already-applied) echo "ALLOW"; exit 0 ;;
-          *)               exit 1 ;;
-        esac
-        ;;
-      list)
-        case "$override_state" in
-          enforced) echo "constraints/iam.allowedPolicyMemberDomains"; exit 0 ;;
-          *)        exit 0 ;;
+        # describe with --format='value(listPolicy.allValues)' returns:
+        #   - "ALLOW" when override is in place
+        #   - empty string when policy exists but allValues is unset
+        #     (the org-inherited-but-empty-project-stub case from the
+        #      2026-04-28 dry-run)
+        #   - non-zero exit when no policy at all (which we treat the
+        #     same as "not ALLOW" — apply override)
+        case "$describe_state" in
+          allow) echo "ALLOW"; exit 0 ;;
+          empty) echo ""; exit 0 ;;
+          error) exit 1 ;;
         esac
         ;;
       set-policy)
-        # Read the YAML/JSON body from /dev/stdin, log it
         cat >> "$tmp/set-policy-body.log"
         exit 0
         ;;
@@ -402,12 +408,12 @@ EOF
   echo "$tmp"
 }
 
-# Test 9: override already applied → [skip] message, set-policy NOT called
+# Test 9: describe returns ALLOW → [skip], no set-policy call
 
 echo ""
 echo "Test 9: Step 1.5 skips when override already in place"
 
-T9=$(run_step1_5_test "already-applied" "already-applied")
+T9=$(run_step1_5_test "already-applied" "allow")
 
 if grep -q "already in place" "$T9/stdout.log"; then
   echo -e "  ${GREEN}✓${NC} skip message logged"
@@ -424,12 +430,13 @@ if [[ -f "$T9/gcloud.log" ]]; then
 fi
 assert_eq "0" "$set_policy_calls" "set-policy NOT called when already in place"
 
-# Test 10: constraint enforced → set-policy called with correct body
+# Test 10: describe returns empty (org-inherited-but-not-explicit) → override applied
+# Reproduces the live bug observed during the 2026-04-28 dry-run.
 
 echo ""
-echo "Test 10: Step 1.5 applies override when constraint is enforced"
+echo "Test 10: Step 1.5 applies override when project policy is empty (org-inherited case)"
 
-T10=$(run_step1_5_test "enforced" "enforced")
+T10=$(run_step1_5_test "empty-stub" "empty")
 
 if grep -q "applying domain-restricted-sharing override" "$T10/stdout.log"; then
   echo -e "  ${GREEN}✓${NC} override-applied message logged"
@@ -455,18 +462,20 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# Test 11: constraint not enforced → [skip] message, set-policy NOT called
+# Test 11: describe returns non-zero (no policy at project level) → override applied
+# This used to be the "skip" path. Pre-fix, the script left these projects
+# without an override and they failed the first Gmail-account IAM binding.
 
 echo ""
-echo "Test 11: Step 1.5 skips when constraint is not enforced"
+echo "Test 11: Step 1.5 applies override when describe errors (no policy at project level)"
 
-T11=$(run_step1_5_test "not-enforced" "not-enforced")
+T11=$(run_step1_5_test "no-policy" "error")
 
-if grep -q "not enforced" "$T11/stdout.log"; then
-  echo -e "  ${GREEN}✓${NC} not-enforced skip message logged"
+if grep -q "applying domain-restricted-sharing override" "$T11/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} override-applied message logged (no longer silently skipped)"
   PASS=$((PASS + 1))
 else
-  echo -e "  ${RED}✗${NC} expected 'not enforced' in stdout"
+  echo -e "  ${RED}✗${NC} expected 'applying ... override' in stdout — was the bug reintroduced?"
   cat "$T11/stdout.log"
   FAIL=$((FAIL + 1))
 fi
@@ -475,7 +484,7 @@ set_policy_calls=0
 if [[ -f "$T11/gcloud.log" ]]; then
   set_policy_calls="$(grep -c 'set-policy' "$T11/gcloud.log" || true)"
 fi
-assert_eq "0" "$set_policy_calls" "set-policy NOT called when constraint absent"
+assert_eq "1" "$set_policy_calls" "set-policy called exactly once even when describe errors"
 
 # ── Test 12-14: Step 5.5 WIF setup ──────────────────────────────────────
 #

@@ -218,21 +218,30 @@ fi
 # This is a list constraint, NOT a boolean — `disable-enforce` does not
 # work; `set-policy` with the explicit listPolicy form does. See
 # docs/PATTERN-LIBRARY.md pattern #30.
+#
+# Decision logic: read the project's `describe` output. If listPolicy
+# already resolves to ALLOW (override in place), skip. Otherwise apply
+# the override unconditionally — the `set-policy` call is itself
+# idempotent on a project that already has the same allValues, so no
+# harm in always running it on a non-ALLOW project. The earlier
+# `org-policies list` probe was unreliable: org-inherited constraints
+# don't always appear in the project's list view, so workshop projects
+# under an org with the constraint set at the org level were silently
+# left without the override and failed at the first external-domain
+# IAM binding (e.g. roles/editor to a Gmail account).
 
-if gcloud resource-manager org-policies describe \
+drs_effective="$(gcloud resource-manager org-policies describe \
   iam.allowedPolicyMemberDomains \
   --project="$GCP_PROJECT_ID" \
-  --format='value(listPolicy.allValues)' 2>/dev/null | grep -q '^ALLOW$'; then
+  --format='value(listPolicy.allValues)' 2>/dev/null || true)"
+
+if [[ "$drs_effective" == "ALLOW" ]]; then
   echo "[skip] domain-restricted-sharing override already in place for $GCP_PROJECT_ID"
-elif gcloud resource-manager org-policies list \
-  --project="$GCP_PROJECT_ID" \
-  --format='value(constraint)' 2>/dev/null | grep -q 'allowedPolicyMemberDomains'; then
+else
   echo "[override] applying domain-restricted-sharing override for $GCP_PROJECT_ID"
   echo '{"constraint":"constraints/iam.allowedPolicyMemberDomains","listPolicy":{"allValues":"ALLOW"}}' \
     | gcloud resource-manager org-policies set-policy /dev/stdin \
-        --project="$GCP_PROJECT_ID"
-else
-  echo "[skip] domain-restricted-sharing not enforced; no override needed"
+        --project="$GCP_PROJECT_ID" >/dev/null
 fi
 
 # ── Step 2: Enable APIs ──────────────────────────────────────────────────
