@@ -477,6 +477,200 @@ if [[ -f "$T11/gcloud.log" ]]; then
 fi
 assert_eq "0" "$set_policy_calls" "set-policy NOT called when constraint absent"
 
+# ── Test 12-14: Step 5.5 WIF setup ──────────────────────────────────────
+#
+# Step 5.5 has three branches:
+#   - GITHUB_USERNAME unset                 → entire block skipped
+#   - GITHUB_USERNAME set, WIF artifacts absent → pool + provider + binding created
+#   - GITHUB_USERNAME set, WIF artifacts present → all three sub-steps log [skip]
+#                                                  (binding still calls add-iam — idempotent)
+#
+# Stubs gcloud at PATH and short-circuits the script after Step 5.5 by
+# exiting non-zero in code paths past the WIF block (Step 6 only runs
+# when --with-sa-key is set; we don't pass it). The script naturally
+# completes after Step 5.5 + the closing summary.
+
+run_step5_5_test() {
+  local wif_state="$1"   # "absent" | "present"
+  local tmp; tmp=$(mktemp -d -t aflowtest-XXXX)
+  mkdir -p "$tmp/bin"
+
+  cat > "$tmp/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$tmp/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    # Existence check (no --format) returns 1 so we take the create path.
+    # Lifecycle check returns ACTIVE.
+    # ProjectNumber check returns 12345.
+    # Note: bash strips the single quotes around --format='value(...)'
+    # before invoking gcloud, so the stub matches without quotes.
+    if echo "\$*" | grep -q "projectNumber"; then
+      echo "12345"
+    elif echo "\$*" | grep -q "lifecycleState"; then
+      echo "ACTIVE"
+    else
+      exit 1
+    fi
+    exit 0
+    ;;
+  "projects create"|"projects get-iam-policy"|"projects add-iam-policy-binding") exit 0 ;;
+  "billing projects") exit 0 ;;
+  "resource-manager org-policies")
+    # Step 1.5: pretend constraint not enforced so we skip past quickly
+    case "\$3" in
+      describe) exit 1 ;;
+      list)     exit 0 ;;
+    esac
+    ;;
+  "services enable") exit 0 ;;
+  "artifacts repositories")
+    case "\$3" in
+      describe) exit 1 ;;   # not exists -> create path
+      create)   exit 0 ;;
+    esac
+    ;;
+  "iam service-accounts")
+    case "\$3" in
+      describe) exit 1 ;;   # not exists -> create path
+      create)   exit 0 ;;
+      add-iam-policy-binding) exit 0 ;;   # used for SA roles + WIF binding
+    esac
+    ;;
+  "iam workload-identity-pools")
+    case "\$3" in
+      describe)
+        case "$wif_state" in
+          present) exit 0 ;;
+          *)       exit 1 ;;
+        esac
+        ;;
+      create) exit 0 ;;
+      providers)
+        case "\$4" in
+          describe)
+            case "$wif_state" in
+              present) exit 0 ;;
+              *)       exit 1 ;;
+            esac
+            ;;
+          create-oidc) exit 0 ;;
+        esac
+        ;;
+    esac
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$tmp/bin/gcloud"
+
+  set +e
+  PATH="$tmp/bin:$PATH" \
+    GCP_PROJECT_ID="af-wif-test" \
+    BILLING_ACCOUNT_ID="FAKE" \
+    GITHUB_USERNAME="${2:-}" \
+    "$SCRIPT" --create-project > "$tmp/stdout.log" 2>&1
+  set -e
+
+  echo "$tmp"
+}
+
+# Test 12: GITHUB_USERNAME unset → entire WIF block skipped
+
+echo ""
+echo "Test 12: Step 5.5 skipped when GITHUB_USERNAME unset"
+
+T12=$(run_step5_5_test "absent" "")
+
+if grep -q "WIF setup not requested" "$T12/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip message logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'WIF setup not requested' in stdout"
+  cat "$T12/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+wif_pool_calls=0
+if [[ -f "$T12/gcloud.log" ]]; then
+  wif_pool_calls="$(grep -c 'workload-identity-pools' "$T12/gcloud.log" || true)"
+fi
+assert_eq "0" "$wif_pool_calls" "no workload-identity-pools calls when GITHUB_USERNAME unset"
+
+# Test 13: GITHUB_USERNAME set, WIF artifacts absent → pool + provider + binding created
+
+echo ""
+echo "Test 13: Step 5.5 creates pool + provider + binding when WIF absent"
+
+T13=$(run_step5_5_test "absent" "alice-gh")
+
+if grep -q "create.*WIF pool" "$T13/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} create-pool log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[create] WIF pool' in stdout"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "create.*WIF provider" "$T13/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} create-provider log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[create] WIF provider' in stdout"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "alice-gh/agile-flow-gcp" "$T13/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} binding log names alice-gh/agile-flow-gcp (default WIF_REPO)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected binding log to mention alice-gh/agile-flow-gcp"
+  cat "$T13/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Final summary line should print the WIF provider resource path with project number 12345
+if grep -q "GCP_WORKLOAD_IDENTITY_PROVIDER = projects/12345/locations/global/workloadIdentityPools/github/providers/github" "$T13/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} final summary prints concrete WIF provider resource"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected concrete WIF provider in final summary; got:"
+  grep "WORKLOAD_IDENTITY" "$T13/stdout.log" || echo "(no WORKLOAD_IDENTITY line found)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 14: GITHUB_USERNAME set, WIF artifacts present → idempotent skip
+
+echo ""
+echo "Test 14: Step 5.5 idempotent when WIF artifacts already present"
+
+T14=$(run_step5_5_test "present" "alice-gh")
+
+if grep -q "skip.*WIF pool" "$T14/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip-pool log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip] WIF pool' in stdout"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "skip.*WIF provider" "$T14/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip-provider log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip] WIF provider' in stdout"
+  FAIL=$((FAIL + 1))
+fi
+
+# Binding step is always called (it's idempotent at the gcloud level)
+if grep -q "bind.*workloadIdentityUser" "$T14/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} binding step still ran (idempotent)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected binding step to log [bind]"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""
