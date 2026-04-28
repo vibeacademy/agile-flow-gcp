@@ -700,6 +700,276 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 15-17: Step 5.7 Neon branch + database-url Secret Manager ──────
+#
+# Step 5.7 has three branches:
+#   - NEON_API_KEY/PROJECT_ID/BRANCH_NAME unset → skipped
+#   - branch absent in Neon → POST /branches returns 201; secret created
+#   - branch already exists → POST returns 409; lookup existing; secret
+#     versions-add (when value differs) or no-op (when same)
+#
+# Stubs both curl (Neon API) and gcloud (Secret Manager) at PATH.
+
+run_step5_7_test() {
+  local neon_state="$1"   # "skip" | "absent" | "exists" | "exists-same-value"
+  local tmp; tmp=$(mktemp -d -t aflowtest-XXXX)
+  mkdir -p "$tmp/bin"
+
+  # Fake Neon API responses keyed by the URL path.
+  cat > "$tmp/bin/curl" <<EOF
+#!/usr/bin/env bash
+# Capture full args (each on its own line for grep'ability)
+printf '%s\n' "\$@" >> "$tmp/curl.log"
+
+# Find the URL — last positional arg containing /api/v2.
+url=""
+for a in "\$@"; do
+  case "\$a" in
+    *console.neon.tech/api/v2*) url="\$a" ;;
+  esac
+done
+
+# --output FILE writes the body to FILE; --write-out '%{http_code}' prints
+# the HTTP code on stdout. Detect both.
+out_file=""
+write_out=""
+prev=""
+for a in "\$@"; do
+  case "\$prev" in
+    --output)      out_file="\$a" ;;
+    --write-out)   write_out="\$a" ;;
+  esac
+  prev="\$a"
+done
+
+# Method: was -X POST passed?
+is_post=false
+for a in "\$@"; do
+  if [[ "\$a" == POST ]]; then is_post=true; fi
+done
+
+emit() {
+  # If --output present, write body there. Otherwise body to stdout.
+  if [[ -n "\$out_file" ]]; then
+    printf '%s' "\$1" > "\$out_file"
+  else
+    printf '%s' "\$1"
+  fi
+  # If --write-out present, print HTTP code on stdout.
+  if [[ -n "\$write_out" ]]; then
+    printf '%s' "\$2"
+  fi
+}
+
+case "\$url" in
+  *"/branches?"*|*"/branches "*)
+    # GET /branches
+    emit '{"branches":[{"id":"br-main","name":"main","default":true}]}' "200"
+    exit 0
+    ;;
+  *"/branches"*)
+    if \$is_post; then
+      # POST /branches  (create)
+      case "$neon_state" in
+        absent)
+          emit '{"branch":{"id":"br-alice","name":"alice"}}' "201"
+          exit 0
+          ;;
+        exists|exists-same-value)
+          emit '{"error":"branch already exists"}' "409"
+          exit 0
+          ;;
+      esac
+    else
+      # GET /branches (no query, the re-fetch path)
+      emit '{"branches":[{"id":"br-main","name":"main","default":true},{"id":"br-alice","name":"alice"}]}' "200"
+      exit 0
+    fi
+    ;;
+  *"/connection_uri"*)
+    emit '{"uri":"postgresql://user:pass@ep-xxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"}' "200"
+    exit 0
+    ;;
+  *)
+    emit '{"error":"unhandled in stub"}' "500"
+    exit 1
+    ;;
+esac
+EOF
+  chmod +x "$tmp/bin/curl"
+
+  # Fake gcloud — combines the Step 5.5 stub plus secrets handling.
+  cat > "$tmp/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$tmp/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    if echo "\$*" | grep -q "projectNumber"; then
+      echo "12345"
+    elif echo "\$*" | grep -q "lifecycleState"; then
+      echo "ACTIVE"
+    else
+      exit 1
+    fi
+    exit 0
+    ;;
+  "projects create"|"projects get-iam-policy"|"projects add-iam-policy-binding") exit 0 ;;
+  "billing projects") exit 0 ;;
+  "resource-manager org-policies")
+    case "\$3" in
+      describe) exit 1 ;;
+      list)     exit 0 ;;
+    esac
+    ;;
+  "services enable") exit 0 ;;
+  "artifacts repositories")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+    esac
+    ;;
+  "iam service-accounts")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+      add-iam-policy-binding) exit 0 ;;
+    esac
+    ;;
+  "iam workload-identity-pools") exit 1 ;;  # skip WIF in 5.7 tests
+  "secrets describe")
+    case "$neon_state" in
+      exists-same-value) exit 0 ;;   # secret exists
+      *)                 exit 1 ;;   # secret does not exist
+    esac
+    ;;
+  "secrets versions")
+    # versions access latest — return what's currently in the secret
+    case "$neon_state" in
+      exists-same-value)
+        echo "postgresql://user:pass@ep-xxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+        ;;
+    esac
+    exit 0
+    ;;
+  "secrets create"|"secrets add-iam-policy-binding") exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$tmp/bin/gcloud"
+
+  # Use ${var-default} (no colon) so an explicit empty string passed by
+  # the caller — like test 15's "" for NEON_API_KEY — stays empty.
+  # ${var:-default} would substitute on empty, which we don't want here.
+  set +e
+  PATH="$tmp/bin:$PATH" \
+    GCP_PROJECT_ID="af-step57-test" \
+    BILLING_ACCOUNT_ID="FAKE" \
+    NEON_API_KEY="${2-fake-api-key}" \
+    NEON_PROJECT_ID="${3-fake-project-id}" \
+    NEON_BRANCH_NAME="${4-alice}" \
+    "$SCRIPT" --create-project > "$tmp/stdout.log" 2>&1
+  set -e
+
+  echo "$tmp"
+}
+
+# Test 15: NEON_API_KEY unset → step is skipped
+
+echo ""
+echo "Test 15: Step 5.7 skipped when NEON_API_KEY unset"
+
+T15=$(run_step5_7_test "skip" "" "fake-project-id" "alice")
+
+if grep -q "skip.*NEON_API_KEY unset" "$T15/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip message logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip]' message about NEON_API_KEY"
+  cat "$T15/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# When skipped, no curl calls to the Neon API should have happened
+neon_calls=0
+if [[ -f "$T15/curl.log" ]]; then
+  neon_calls="$(grep -c "console.neon.tech" "$T15/curl.log" || true)"
+fi
+assert_eq "0" "$neon_calls" "no Neon API calls when skipped"
+
+# Test 16: NEON_*  set, branch absent → branch created, secret created
+
+echo ""
+echo "Test 16: Step 5.7 creates branch + database-url secret when absent"
+
+T16=$(run_step5_7_test "absent")
+
+if grep -q "branch created" "$T16/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} branch-created log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'branch created' in stdout"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "create.*database-url secret" "$T16/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} secret-create log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[create] database-url secret' in stdout"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify gcloud secrets create was called (not versions add)
+if grep -q "secrets create database-url" "$T16/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud secrets create invoked"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'gcloud secrets create database-url' in gcloud.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# IAM binding granted
+if grep -q "secrets add-iam-policy-binding database-url" "$T16/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} per-secret IAM binding granted"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'secrets add-iam-policy-binding database-url' in gcloud.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 17: branch exists, secret exists with SAME value → no-op skip
+
+echo ""
+echo "Test 17: Step 5.7 idempotent when branch + secret already current"
+
+T17=$(run_step5_7_test "exists-same-value")
+
+if grep -q "branch.*alice.*already exists" "$T17/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} branch-already-exists log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'branch already exists' in stdout"
+  cat "$T17/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "skip.*database-url secret already current" "$T17/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} secret-already-current log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip] database-url secret already current' in stdout"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify gcloud secrets create was NOT called (since we used versions access path)
+if ! grep -q "secrets create database-url" "$T17/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud secrets create NOT called (idempotent)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} secrets create should NOT have been called when secret is current"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""

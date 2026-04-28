@@ -258,6 +258,40 @@ From the Neon Console, grab:
 
 ### Step 7: Create a Secret Manager Secret for the Database URL
 
+**As of `provision-gcp-project.sh` Step 5.7, this is automatic per
+project.** Set three env vars before running the provisioner:
+
+```bash
+NEON_API_KEY=neon_api_key_... \
+NEON_PROJECT_ID=dawn-mountain-12345 \
+NEON_BRANCH_NAME=alice \
+GCP_PROJECT_ID=af-alice-2026-05 \
+BILLING_ACCOUNT_ID=XXX-XXXX-XXXX \
+  ./scripts/provision-gcp-project.sh --create-project
+```
+
+Step 5.7 will:
+
+1. Create a Neon branch named `$NEON_BRANCH_NAME` (parented from the
+   project's `main` branch). If the branch already exists, reuse it.
+2. Fetch the branch's pooled connection URI via the Neon API.
+3. Create the `database-url` Secret Manager secret with that URI as
+   the value. If the secret already exists with a different value, add
+   a new version.
+4. Grant the deployer service account `roles/secretmanager.secretAccessor`
+   on the secret.
+
+The workshop wrapper (`provision-workshop-roster.sh`) reads
+`neon_branch` from each `roster.csv` row (defaulting to the row's
+`handle`) and exports `NEON_BRANCH_NAME` automatically. Facilitators
+running the canonical workshop flow don't need to manage this secret
+per project.
+
+#### Manual fallback (rarely needed)
+
+If you're running the inner script standalone or the env vars aren't
+set, the script's "Next steps" footer prints the manual command:
+
 ```bash
 echo -n "postgresql://user:pass@pooled-host/db" | \
   gcloud secrets create database-url \
@@ -265,8 +299,10 @@ echo -n "postgresql://user:pass@pooled-host/db" | \
     --project=YOUR_PROJECT_ID
 ```
 
-Use the **pooled** Neon connection string. Cloud Run exhausts direct
-connections fast because every revision instance opens its own pool.
+Use the **pooled** Neon connection string (the host should contain
+`-pooler.`). Cloud Run exhausts direct connections fast because every
+revision instance opens its own pool. See pattern #9 in
+`docs/PATTERN-LIBRARY.md`.
 
 ### Step 8: Configure GitHub Secrets and Variables
 
