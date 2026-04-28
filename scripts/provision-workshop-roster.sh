@@ -17,6 +17,9 @@
 #   PROVISION_SCRIPT     (default: scripts/provision-gcp-project.sh) — for tests
 #   NEON_API_KEY         optional; forwarded to inner script for branch creation
 #   NEON_PROJECT_ID      optional; forwarded to inner script for branch creation
+#   BUDGET_CAP_USD       optional; forwarded to inner script for Step 5.6
+#                        (per-project billing budget). Default for workshop
+#                        usage is 25.
 #
 # CSV format (header required, accepts 4, 5, or 6 columns):
 #   handle,github_user,email,cohort
@@ -225,6 +228,7 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   NEON_BRANCH_NAME="$neon_branch" \
   NEON_API_KEY="${NEON_API_KEY:-}" \
   NEON_PROJECT_ID="${NEON_PROJECT_ID:-}" \
+  BUDGET_CAP_USD="${BUDGET_CAP_USD:-}" \
     "$PROVISION_SCRIPT" --create-project
 
   # Grant the participant editor on their own project. Idempotent.

@@ -470,12 +470,54 @@ projects are gone). `roster.csv` (input) is preserved.
 > the `cohort` column in the roster (e.g. `2026-05` → `2026-05a`) so
 > new project IDs are generated.
 
+### Budget guardrails
+
+Set `BUDGET_CAP_USD` before running setup to attach a per-project billing
+budget to every attendee project. The provisioner's Step 5.6 creates a
+budget on the billing account, scoped to the single project via
+`--filter-projects=projects/<project_number>`, with thresholds at 50%,
+90%, and 100% of current spend plus 100% of forecasted spend.
+
+```bash
+BILLING_ACCOUNT_ID=XXXXXX-XXXXXX-XXXXXX \
+  BUDGET_CAP_USD=25 \
+  ./scripts/workshop-setup.sh roster.csv
+```
+
+Notification routing uses the billing account's default IAM recipients —
+anyone with `roles/billing.admin` or `roles/billing.user` on the account
+gets email at each threshold. No separate Cloud Monitoring notification
+channel needed. The facilitator already has Billing Admin to run the
+script, so emails route to them automatically.
+
+To create budgets, the facilitator (script runner) needs
+`roles/billing.costsManager` on the billing account. This is in addition
+to the `roles/billing.user` already required for `gcloud billing
+projects link` in Step 1.
+
+The step is idempotent: budgets are looked up by display-name
+`af-workshop-cap-<project_id>` before creation, so re-running the
+provisioner is a no-op for projects that already have a cap.
+
+When `BUDGET_CAP_USD` is unset (the non-workshop default), Step 5.6 is
+skipped silently — `provision-gcp-project.sh` for production deploys
+doesn't need a workshop-style cap.
+
+> **This step provides alerts only.** Auto-cutoff (disabling billing on
+> threshold breach) is tracked separately at
+> [#42](https://github.com/vibeacademy/agile-flow-gcp/issues/42) and is
+> intentionally out of scope here. For the May 2026 workshop's blast
+> radius (≤8 projects × $25 = ~$200 worst case), facilitator monitoring
+> is sufficient.
+
 ### What the lifecycle scripts do NOT do
 
 - Workload Identity Federation setup — currently manual per project
   (see "Step 5: Workload Identity Federation" above), or track ticket
   [#5](https://github.com/vibeacademy/agile-flow-gcp/issues/5).
-- Budget caps — see ticket [#6](https://github.com/vibeacademy/agile-flow-gcp/issues/6).
+- Budget auto-cutoff (Cloud Function disabling billing on threshold
+  breach) — see [#42](https://github.com/vibeacademy/agile-flow-gcp/issues/42).
+  Email alerts at 50/90/100% are wired up via Step 5.6 above.
 - Org-policy override for `iam.allowedPolicyMemberDomains` — currently
   manual per project (see [`PATTERN-LIBRARY.md` pattern #30](./PATTERN-LIBRARY.md)),
   or track ticket [#19](https://github.com/vibeacademy/agile-flow-gcp/issues/19).

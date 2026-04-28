@@ -31,6 +31,11 @@
 #   NEON_BRANCH_NAME     (optional) Same: required for Step 5.7.
 #                        Wrapper sets this from the CSV's neon_branch
 #                        column (defaults to handle).
+#   BUDGET_CAP_USD       (optional) Enables Step 5.6 (per-project billing
+#                        budget with 50/90/100% thresholds + forecast).
+#                        When set, BILLING_ACCOUNT_ID is also required.
+#                        The runner needs roles/billing.costsManager on
+#                        the billing account. When unset, step is skipped.
 #
 # Notes:
 # - This script is idempotent. Re-running skips resources that already exist.
@@ -239,6 +244,7 @@ gcloud services enable \
   secretmanager.googleapis.com \
   iam.googleapis.com \
   iamcredentials.googleapis.com \
+  billingbudgets.googleapis.com \
   --project="$GCP_PROJECT_ID"
 
 # ── Step 3: Artifact Registry repo ───────────────────────────────────────
@@ -407,6 +413,77 @@ if [[ -n "$WIF_OWNER" ]]; then
   WIF_PROVIDER_RESOURCE="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/providers/${WIF_PROVIDER}"
 else
   echo "[skip] WIF setup not requested (GITHUB_OWNER and GITHUB_USERNAME unset)"
+fi
+
+# ── Step 5.6: Per-project billing budget cap ────────────────────────────
+#
+# Creates a budget on the billing account, scoped to this single project,
+# with thresholds at 50%/90%/100% of current spend plus 100% of forecasted
+# spend. Notifications are sent to the billing account's default IAM
+# recipients (Billing Account Admin/User) — no separate Cloud Monitoring
+# notification channel needed.
+#
+# Gated on BUDGET_CAP_USD being set. When unset, the step is skipped
+# silently — non-workshop callers don't need a budget.
+#
+# Idempotency: budgets list filtered by display-name. The display-name is
+# `af-workshop-cap-<project_id>` to keep it unique per attendee project.
+#
+# Auto-cutoff (disabling billing on threshold hit) is intentionally NOT
+# part of this step — see #42 for that follow-up. This step provides
+# alerts only.
+#
+# The runner needs roles/billing.costsManager on the billing account to
+# create budgets. Documented in PLATFORM-GUIDE.md.
+
+if [[ -n "${BUDGET_CAP_USD:-}" ]]; then
+  if [[ -z "${BILLING_ACCOUNT_ID:-}" ]]; then
+    echo "ERROR: BUDGET_CAP_USD is set but BILLING_ACCOUNT_ID is unset" >&2
+    echo "       Step 5.6 needs the billing account to create the budget." >&2
+    exit 1
+  fi
+
+  # Validate that BUDGET_CAP_USD is a positive integer or decimal.
+  if ! [[ "$BUDGET_CAP_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "ERROR: BUDGET_CAP_USD must be a positive number (got: '$BUDGET_CAP_USD')" >&2
+    exit 1
+  fi
+
+  # PROJECT_NUMBER may already be cached from Step 5.5. If WIF was skipped
+  # (no GITHUB_OWNER), resolve it now.
+  if [[ -z "${PROJECT_NUMBER:-}" ]]; then
+    PROJECT_NUMBER="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')"
+  fi
+
+  BUDGET_DISPLAY_NAME="af-workshop-cap-${GCP_PROJECT_ID}"
+
+  # Look up existing budget by display name. `gcloud billing budgets list`
+  # has no server-side filter on displayName, so we fetch all on this
+  # account and grep client-side. For a workshop billing account with
+  # ~8 budgets that's fine; if this ever scales we can switch to the
+  # `--filter` flag (which does a regex match on display name).
+  existing_budget="$(gcloud billing budgets list \
+    --billing-account="$BILLING_ACCOUNT_ID" \
+    --filter="displayName=${BUDGET_DISPLAY_NAME}" \
+    --format='value(name)' 2>/dev/null | head -n 1)"
+
+  if [[ -n "$existing_budget" ]]; then
+    echo "[skip] budget '${BUDGET_DISPLAY_NAME}' already exists (\$${BUDGET_CAP_USD} USD)"
+  else
+    echo "[create] budget '${BUDGET_DISPLAY_NAME}' (\$${BUDGET_CAP_USD} USD, scoped to $GCP_PROJECT_ID)"
+    gcloud billing budgets create \
+      --billing-account="$BILLING_ACCOUNT_ID" \
+      --display-name="$BUDGET_DISPLAY_NAME" \
+      --budget-amount="${BUDGET_CAP_USD}USD" \
+      --filter-projects="projects/${PROJECT_NUMBER}" \
+      --threshold-rule=percent=0.50 \
+      --threshold-rule=percent=0.90 \
+      --threshold-rule=percent=1.0 \
+      --threshold-rule=percent=1.0,basis=forecasted-spend \
+      --quiet >/dev/null
+  fi
+else
+  echo "[skip] budget cap (BUDGET_CAP_USD unset)"
 fi
 
 # ── Step 5.7: Neon branch + database-url Secret Manager ─────────────────

@@ -1011,6 +1011,194 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 18-21: Step 5.6 budget cap ─────────────────────────────────────
+#
+# Step 5.6 has three branches:
+#   - BUDGET_CAP_USD unset → silently skipped, no billing calls
+#   - BUDGET_CAP_USD set, no existing budget → create called once
+#   - BUDGET_CAP_USD set, budget already exists (by display-name) → skip
+#
+# The harness stubs the full gcloud surface to keep the script running
+# through Step 6 without erroring out on unrelated commands.
+
+run_step5_6_test() {
+  local budget_state="$1"   # "skip-unset" | "absent" | "exists"
+  local budget_amount="${2-25}"
+  local tmp; tmp=$(mktemp -d -t aflowtest-XXXX)
+  mkdir -p "$tmp/bin"
+
+  cat > "$tmp/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$tmp/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    if echo "\$*" | grep -q "projectNumber"; then
+      echo "12345"
+    elif echo "\$*" | grep -q "lifecycleState"; then
+      echo "ACTIVE"
+    else
+      exit 1
+    fi
+    exit 0
+    ;;
+  "projects create"|"projects get-iam-policy"|"projects add-iam-policy-binding") exit 0 ;;
+  "billing projects") exit 0 ;;
+  "billing accounts") exit 0 ;;
+  "billing budgets")
+    case "\$3" in
+      list)
+        # Emulate display-name filter by branching on the canned state.
+        case "$budget_state" in
+          exists) echo "billingAccounts/FAKE/budgets/abcdef" ;;
+          *)      ;;  # absent → empty output
+        esac
+        exit 0
+        ;;
+      create) exit 0 ;;
+    esac
+    ;;
+  "resource-manager org-policies")
+    case "\$3" in
+      describe) exit 1 ;;
+      list)     exit 0 ;;
+    esac
+    ;;
+  "services enable") exit 0 ;;
+  "artifacts repositories")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+    esac
+    ;;
+  "iam service-accounts")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+      add-iam-policy-binding) exit 0 ;;
+    esac
+    ;;
+  "iam workload-identity-pools") exit 1 ;;  # skip WIF
+  "secrets describe") exit 1 ;;             # skip Neon (no NEON_API_KEY anyway)
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$tmp/bin/gcloud"
+
+  set +e
+  PATH="$tmp/bin:$PATH" \
+    GCP_PROJECT_ID="af-step56-test" \
+    BILLING_ACCOUNT_ID="FAKE" \
+    BUDGET_CAP_USD="${budget_amount-}" \
+    "$SCRIPT" --create-project > "$tmp/stdout.log" 2>&1
+  set -e
+
+  echo "$tmp"
+}
+
+# Test 18: BUDGET_CAP_USD unset → step skipped, no billing calls
+
+echo ""
+echo "Test 18: Step 5.6 skipped when BUDGET_CAP_USD unset"
+
+T18=$(run_step5_6_test "skip-unset" "")
+
+if grep -q "skip.*budget cap.*BUDGET_CAP_USD unset" "$T18/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip message logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip] budget cap (BUDGET_CAP_USD unset)' in stdout"
+  cat "$T18/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+budget_calls=0
+if [[ -f "$T18/gcloud.log" ]]; then
+  budget_calls="$(grep -c 'billing budgets' "$T18/gcloud.log" || true)"
+fi
+assert_eq "0" "$budget_calls" "no billing budgets calls when BUDGET_CAP_USD unset"
+
+# Test 19: BUDGET_CAP_USD=25, no existing budget → create called
+
+echo ""
+echo "Test 19: Step 5.6 creates budget when BUDGET_CAP_USD set and absent"
+
+T19=$(run_step5_6_test "absent" "25")
+
+if grep -q "create.*af-workshop-cap-af-step56-test.*\$25 USD" "$T19/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} create log names display-name + amount"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[create] budget af-workshop-cap-... \$25 USD' in stdout"
+  cat "$T19/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "billing budgets create" "$T19/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud billing budgets create invoked"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'billing budgets create' in gcloud.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Critical scoping assertion: budget MUST filter on the project, not the
+# whole billing account. Otherwise one participant's spend trips everyone.
+if grep -q "filter-projects=projects/12345" "$T19/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} budget scoped to project (--filter-projects=projects/12345)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected --filter-projects=projects/12345 on budgets create"
+  grep "budgets create" "$T19/gcloud.log" || echo "(no create call found)"
+  FAIL=$((FAIL + 1))
+fi
+
+# All four threshold rules must be present (50, 90, 100 current + 100 forecasted).
+# Each gcloud invocation lands on one line in gcloud.log, so grep -c counts
+# invocations, not flag occurrences. Use -o to count matches.
+threshold_count="$(grep -o 'threshold-rule=percent=' "$T19/gcloud.log" | wc -l | tr -d '[:space:]')"
+assert_eq "4" "$threshold_count" "four --threshold-rule flags present (50/90/100/100-forecast)"
+
+# Test 20: BUDGET_CAP_USD=25, budget already exists → skip (no create)
+
+echo ""
+echo "Test 20: Step 5.6 idempotent when budget already exists"
+
+T20=$(run_step5_6_test "exists" "25")
+
+if grep -q "skip.*af-workshop-cap-af-step56-test.*already exists" "$T20/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip-existing log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip] budget ... already exists' in stdout"
+  cat "$T20/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if ! grep -q "billing budgets create" "$T20/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud billing budgets create NOT invoked (idempotent)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} budgets create should NOT have run when budget already exists"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 21: invalid BUDGET_CAP_USD → exit 1 with clear error
+
+echo ""
+echo "Test 21: Step 5.6 rejects non-numeric BUDGET_CAP_USD"
+
+T21=$(run_step5_6_test "absent" "twenty-five")
+ec=$?
+
+if grep -q "BUDGET_CAP_USD must be a positive number" "$T21/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} clear error on bad amount"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected error mentioning 'must be a positive number'"
+  cat "$T21/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""
