@@ -142,9 +142,15 @@ jobs:
             NEON_URL_FLAG="--update-env-vars=DATABASE_URL=${{ steps.neon.outputs.db_url_pooled }}"
           fi
 
+          # --service-account pins the runtime SA to the deployer SA so
+          # the revision can read mounted Secret Manager secrets and any
+          # other resource the deployer SA already has access to. Without
+          # this, Cloud Run uses the legacy Compute Engine default SA at
+          # runtime, which has none of the roles provisioned in Step 5.
           gcloud run deploy "${{ env.SERVICE_NAME }}" \
             --image="${{ steps.build.outputs.image }}" \
             --region="${{ env.GCP_REGION }}" \
+            --service-account="${{ secrets.GCP_SERVICE_ACCOUNT }}" \
             --tag="pr-${{ env.PR_NUMBER }}" \
             --no-traffic \
             --port=8080 \
