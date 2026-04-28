@@ -121,9 +121,14 @@ them to authenticate to GCP and deploy to that specific project.
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/123456789/locations/global/workloadIdentityPools/github/providers/github` | provisioner output (after Step 5 below) |
 | `GCP_SERVICE_ACCOUNT` | `deployer@af-bob-2026-05.iam.gserviceaccount.com` | provisioner output |
 | `NEON_API_KEY` | the workshop's shared Neon API key | facilitator |
+| `NEON_PROJECT_ID` | the workshop's shared Neon project ID | facilitator |
+| `NEON_PARENT_BRANCH` | the attendee's Neon branch name (e.g. `bob`) | provisioner output |
 
-The first three are *per-participant*; the fourth is shared across the
-cohort. The participant pastes them into their fork's
+The first three plus `NEON_PARENT_BRANCH` are *per-participant*; the
+two `NEON_*` values that aren't `NEON_PARENT_BRANCH` are shared across
+the cohort. Without `NEON_PARENT_BRANCH`, per-PR previews would branch
+from `main` (empty schema) instead of from the attendee's branch
+(where their migrations live). The participant pastes them into their fork's
 `Settings > Secrets and variables > Actions` panel, and that's the
 entire handoff. No shared identity, no project metadata stored in
 either system — just secret values.
@@ -333,6 +338,7 @@ In your GitHub repo settings (Settings → Secrets and variables → Actions):
 | `GCP_SA_KEY` | (Only if not using WIF — contents of `deployer-key.json`) |
 | `NEON_API_KEY` | From Neon Console |
 | `NEON_PROJECT_ID` | From Neon Console |
+| `NEON_PARENT_BRANCH` | (Optional) Neon branch name for per-PR previews to inherit from. Defaults to `main` when unset. Workshop forks set this to the attendee's branch (e.g. `alice`). |
 
 **Variables (plain text, visible):**
 

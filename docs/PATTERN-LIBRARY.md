@@ -445,7 +445,9 @@ twice on the same PR. The action handles all of this.
   with:
     project_id: ${{ secrets.NEON_PROJECT_ID }}
     branch_name: pr-${{ github.event.pull_request.number }}
-    parent: main
+    # Workshop forks set NEON_PARENT_BRANCH so per-PR previews inherit
+    # the attendee's schema. Non-workshop forks fall back to "main".
+    parent: ${{ secrets.NEON_PARENT_BRANCH || 'main' }}
     username: neondb_owner
     api_key: ${{ secrets.NEON_API_KEY }}
 
