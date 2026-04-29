@@ -15,6 +15,15 @@
 
 set -euo pipefail
 
+# Solo mode: when AGILE_FLOW_SOLO_MODE=true (set via env or shell rc),
+# the hook is a no-op. Used for workshops and tutorials where one
+# attendee plays both worker and reviewer roles under their own
+# GitHub identity. Production teams that want separation-of-duties
+# leave this unset and rely on the worker/reviewer bot accounts below.
+if [[ "${AGILE_FLOW_SOLO_MODE:-false}" == "true" ]]; then
+  exit 0
+fi
+
 WORKER_ACCOUNT="${AGILE_FLOW_WORKER_ACCOUNT:-va-worker}"
 REVIEWER_ACCOUNT="${AGILE_FLOW_REVIEWER_ACCOUNT:-va-reviewer}"
 
