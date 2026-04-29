@@ -750,6 +750,132 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 14d: Step 5.5c WIF binding retries SA-IAM propagation lag ──────
+# Reproduces the live bug observed during the 2026-04-28 dry-run: a
+# freshly-created deployer SA returns IAM_PERMISSION_DENIED on
+# `setIamPolicy` for a few seconds while the IAM control plane catches
+# up. Without retry wrapping, Step 5.5c fails the wrapper mid-row.
+#
+# The stub fails the FIRST `service-accounts add-iam-policy-binding`
+# with the exact transient signature the retry helper classifies, then
+# succeeds on subsequent attempts. We assert that (a) the script exits
+# 0, (b) the binding step retries, and (c) the binding ultimately
+# succeeds.
+
+echo ""
+echo "Test 14d: Step 5.5c retries on SA-IAM propagation lag"
+
+T14D=$(mktemp -d -t aflowtest-XXXX)
+mkdir -p "$T14D/bin"
+echo 0 > "$T14D/bind_attempts"
+
+cat > "$T14D/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$T14D/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    if echo "\$*" | grep -q "projectNumber"; then
+      echo "12345"
+    elif echo "\$*" | grep -q "lifecycleState"; then
+      echo "ACTIVE"
+    else
+      exit 1
+    fi
+    exit 0
+    ;;
+  "projects create"|"projects get-iam-policy"|"projects add-iam-policy-binding") exit 0 ;;
+  "billing projects") exit 0 ;;
+  "resource-manager org-policies")
+    case "\$3" in
+      describe) exit 1 ;;
+      list)     exit 0 ;;
+    esac
+    ;;
+  "services enable") exit 0 ;;
+  "artifacts repositories")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+    esac
+    ;;
+  "iam service-accounts")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+      add-iam-policy-binding)
+        # Distinguish the project-level binding from the SA-level WIF
+        # bindings: the WIF ones target the SA email and reference
+        # principalSet:// in --member.
+        if echo "\$*" | grep -q "principalSet://"; then
+          n=\$(<"$T14D/bind_attempts")
+          n=\$((n + 1))
+          echo \$n > "$T14D/bind_attempts"
+          if (( n == 1 )); then
+            echo "ERROR: (gcloud.iam.service-accounts.add-iam-policy-binding) PERMISSION_DENIED: Permission 'iam.serviceAccounts.setIamPolicy' denied on resource (or it may not exist)." >&2
+            echo "domain: iam.googleapis.com" >&2
+            echo "reason: IAM_PERMISSION_DENIED" >&2
+            exit 1
+          fi
+          exit 0
+        fi
+        exit 0
+        ;;
+    esac
+    ;;
+  "iam workload-identity-pools")
+    case "\$3" in
+      describe) exit 1 ;;        # absent — create path
+      create)   exit 0 ;;
+      providers)
+        case "\$4" in
+          describe)    exit 1 ;;
+          create-oidc) exit 0 ;;
+        esac
+        ;;
+    esac
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T14D/bin/gcloud"
+
+# Speed up the retry helper for tests
+set +e
+PATH="$T14D/bin:$PATH" \
+  RETRY_MAX_ATTEMPTS=4 \
+  RETRY_MAX_SLEEP=1 \
+  GCP_PROJECT_ID="af-wif-retry-test" \
+  BILLING_ACCOUNT_ID="FAKE" \
+  GITHUB_OWNER="alice-gh" \
+  GITHUB_REPO="agile-flow-gcp" \
+  "$SCRIPT" --create-project > "$T14D/stdout.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "wrapper succeeds despite first WIF binding failure"
+
+# The retry log should show a transient classification at least once.
+if grep -q '\[retry .*wif bind' "$T14D/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} retry log line present for WIF binding"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[retry .../... wif bind ...]' in stdout — was the binding wrapped in retry_eventual_consistency?"
+  cat "$T14D/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Bind attempts: exactly 2 (1 fail + 1 success) for the FIRST WIF role.
+# The second WIF role hits a fresh counter — but our stub increments
+# the same counter for both WIF bindings. Resulting total: at minimum 2.
+attempts="$(cat "$T14D/bind_attempts")"
+if (( attempts >= 2 )); then
+  echo -e "  ${GREEN}✓${NC} binding retried (saw $attempts WIF binding calls; ≥ 2 means retry happened)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected ≥ 2 WIF binding attempts; got $attempts"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Test 15-17: Step 5.7 Neon branch + database-url Secret Manager ──────
 #
 # Step 5.7 has three branches:
