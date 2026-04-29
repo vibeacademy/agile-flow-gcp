@@ -132,13 +132,6 @@ jobs:
           # deploy after the first leaves the placeholder serving traffic
           # while the new revision sits at 0%. Symptom: green CI, service URL
           # serves "Hello from Cloud Run!" forever. See #61.
-          #
-          # --remove-env-vars=DATABASE_URL clears any stale plain-env-var of
-          # the same name BEFORE the secrets: mount applies. Cloud Run treats
-          # plain env vars and Secret Manager mounts as different types on
-          # the same key, and `--update-secrets` refuses to overwrite a plain
-          # var. The flag is idempotent (no-op when the var doesn't exist).
-          # See #62.
           flags: |
             --service-account=${{ secrets.GCP_SERVICE_ACCOUNT }}
             --port=8080
@@ -148,14 +141,23 @@ jobs:
             --max-instances=10
             --allow-unauthenticated
             --traffic=latest=100
-            --remove-env-vars=DATABASE_URL
+          # DATABASE_URL is set as a plain env var (not a Secret Manager
+          # mount) so production and preview agree on the env-var TYPE. The
+          # two workflows target the same Cloud Run service; Cloud Run
+          # permits one type per env-var name, never alternating. If
+          # production mounts as secret and preview sets as literal (or
+          # vice-versa), every deploy after the first fails with:
+          #   ERROR: (gcloud.run.deploy) Cannot update environment variable
+          #   [DATABASE_URL] to <type> because it has already been set with
+          #   a different type.
+          # Both workflows now write DATABASE_URL as a literal. The
+          # connection string is on the revision instead of in Secret
+          # Manager — acceptable trade-off because preview already exposes
+          # Neon URLs as literals; consistency between the pipelines is
+          # more valuable than asymmetric hardening of just one. See #67.
           env_vars: |
             ENVIRONMENT=production
-          # Mount secrets from Secret Manager as env vars. The secret must
-          # exist in Secret Manager in the same project and point at the
-          # production Neon pooled connection string.
-          secrets: |
-            DATABASE_URL=database-url:latest
+            DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL }}
 
       - name: Show deployed URL
         if: steps.check_secrets.outputs.skip != 'true'
