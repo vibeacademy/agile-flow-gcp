@@ -382,6 +382,39 @@ has data rows) and then hands off to the underlying provisioning logic.
 Pre-flight failures exit 2 with actionable messages — far better than
 discovering a missing auth token mid-loop.
 
+### Solo mode (workshops and tutorials)
+
+Production teams using this template separate "the agent that opens
+PRs" from "the agent that reviews them" by giving each its own GitHub
+bot account (the `va-worker` / `va-reviewer` pair documented in
+`CLAUDE.md`). For a workshop, that adds 10–15 minutes of per-attendee
+setup (PAT distribution, two `gh auth login` calls, hook debugging
+when an account isn't authed) without teaching anything an attendee
+can't learn another way.
+
+**Solo mode** disables the bot-account split: each attendee uses their
+own personal GitHub account for both worker and reviewer roles. The
+agent flow demos cleanly (open → review → merge as one identity),
+errors are unambiguous (every "can't do X" is about the participant,
+not "which bot am I supposed to be?"), and setup goes from ~15
+min/person to ~3 min/person.
+
+**To enable:** the attendee adds one line to `~/.zshrc` (macOS) or
+`~/.bashrc` (Linux):
+
+```bash
+export AGILE_FLOW_SOLO_MODE=true
+```
+
+After restarting Claude Desktop (so the new shell picks up the env),
+the `.claude/hooks/ensure-github-account.sh` hook short-circuits and
+no longer tries to switch accounts. The attendee operates entirely
+under their own `gh auth login` identity.
+
+**Trade-off** — solo mode loses the audit-trail benefit of bot-account
+separation. Use it for learning environments. Production teams should
+leave the env var unset and run with the full bot-account architecture.
+
 ### Roster format
 
 `roster.csv` accepts three header shapes. The first four columns are

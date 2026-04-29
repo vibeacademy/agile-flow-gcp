@@ -7,7 +7,7 @@
 2. **All tests must pass before pushing.** Never use `git push --no-verify`. Fix the failing checks instead.
 3. **Conventional commits required.** Format: `<type>(<scope>): <subject>`. See `.claude/skills/commit.md` for types and scopes.
 4. **Only humans merge PRs.** Agents create PRs and review them. Humans approve and merge.
-5. **Switch accounts before PR operations.** The `.claude/hooks/ensure-github-account.sh` hook handles this automatically.
+5. **Switch accounts before PR operations.** The `.claude/hooks/ensure-github-account.sh` hook handles this automatically. Set `AGILE_FLOW_SOLO_MODE=true` to skip — recommended for workshops and tutorials where one person plays both worker and reviewer roles.
 6. **No emojis in ASCII tables.** They break column alignment. Emojis OK in prose and headings.
 7. **One canonical location per fact.** Don't duplicate content across CLAUDE.md, agent files, and skills.
 8. **Never hardcode application URLs.** Use `window.location.origin` (client-side) or request headers (server-side) so code works in both production and PR preview environments.
@@ -67,6 +67,8 @@ The `.claude/hooks/ensure-github-account.sh` hook auto-switches accounts:
 
 - **Worker** (`AGILE_FLOW_WORKER_ACCOUNT`, default: `va-worker`) — PR creation
 - **Reviewer** (`AGILE_FLOW_REVIEWER_ACCOUNT`, default: `va-reviewer`) — PR reviews
+
+**Solo mode** — set `AGILE_FLOW_SOLO_MODE=true` to make the hook a no-op. One personal account plays both worker and reviewer roles. Use for workshops and tutorials; the production architecture is the bot-account separation above.
 
 ### GitHub CLI (`gh`)
 
