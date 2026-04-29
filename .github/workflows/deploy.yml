@@ -123,6 +123,22 @@ jobs:
           # does — the asymmetry is easy to miss). Without this flag,
           # Cloud Run uses the legacy Compute Engine default SA at runtime,
           # which has none of the roles we provisioned (e.g. secretAccessor).
+          # --traffic=latest=100 routes all production traffic to the new
+          # revision after deploy. Without it, deploy-cloudrun@v2 leaves the
+          # existing traffic split intact — fine when traffic was already
+          # 100% to the previous latest, but a silent trap when the service
+          # was pre-created with a placeholder revision (Step 5.8 in the
+          # provisioner) that gcloud pinned 100% to. Without this flag, every
+          # deploy after the first leaves the placeholder serving traffic
+          # while the new revision sits at 0%. Symptom: green CI, service URL
+          # serves "Hello from Cloud Run!" forever. See #61.
+          #
+          # --remove-env-vars=DATABASE_URL clears any stale plain-env-var of
+          # the same name BEFORE the secrets: mount applies. Cloud Run treats
+          # plain env vars and Secret Manager mounts as different types on
+          # the same key, and `--update-secrets` refuses to overwrite a plain
+          # var. The flag is idempotent (no-op when the var doesn't exist).
+          # See #62.
           flags: |
             --service-account=${{ secrets.GCP_SERVICE_ACCOUNT }}
             --port=8080
@@ -131,6 +147,8 @@ jobs:
             --min-instances=0
             --max-instances=10
             --allow-unauthenticated
+            --traffic=latest=100
+            --remove-env-vars=DATABASE_URL
           env_vars: |
             ENVIRONMENT=production
           # Mount secrets from Secret Manager as env vars. The secret must
