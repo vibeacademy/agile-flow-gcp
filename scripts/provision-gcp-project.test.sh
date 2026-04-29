@@ -1523,6 +1523,249 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 24-26: Step 7 GitHub secret push ───────────────────────────────
+#
+# Step 7 has three branches:
+#   - GITHUB_REPOSITORY set + gh on PATH → secrets pushed via `gh secret set`
+#   - GITHUB_REPOSITORY unset            → step skipped silently, footer
+#                                          falls back to printed instructions
+#   - GITHUB_REPOSITORY set, gh missing  → step logs hint, footer falls back
+#
+# CRITICAL invariant: secret values must NEVER appear in stdout/stderr.
+# The test asserts this by checking the captured output for the literal
+# WIF provider string after a successful push.
+
+run_step7_test() {
+  local mode="$1"   # "gh-present" | "gh-missing" | "no-repo"
+  local tmp; tmp=$(mktemp -d -t aflowtest-XXXX)
+  mkdir -p "$tmp/bin"
+
+  # Common gcloud stub (same surface as Test 22-23)
+  cat > "$tmp/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$tmp/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    if echo "\$*" | grep -q "projectNumber"; then
+      echo "12345"
+    elif echo "\$*" | grep -q "lifecycleState"; then
+      echo "ACTIVE"
+    else
+      exit 1
+    fi
+    exit 0
+    ;;
+  "projects create"|"projects get-iam-policy"|"projects add-iam-policy-binding") exit 0 ;;
+  "billing projects") exit 0 ;;
+  "billing accounts") exit 0 ;;
+  "resource-manager org-policies")
+    case "\$3" in
+      describe) exit 1 ;;
+      set-policy) exit 0 ;;
+    esac
+    ;;
+  "services enable") exit 0 ;;
+  "artifacts repositories")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+    esac
+    ;;
+  "iam service-accounts")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+      add-iam-policy-binding) exit 0 ;;
+    esac
+    ;;
+  "iam workload-identity-pools")
+    case "\$3" in
+      describe)
+        # Pool-level describe in 5.5a → make it absent so the create path runs
+        exit 1
+        ;;
+      create) exit 0 ;;
+      providers)
+        case "\$4" in
+          describe)    exit 1 ;;
+          create-oidc) exit 0 ;;
+        esac
+        ;;
+    esac
+    ;;
+  "secrets describe") exit 1 ;;
+  "run services") exit 0 ;;     # service exists → skip Step 5.8
+  "run deploy") exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$tmp/bin/gcloud"
+
+  # gh stub: only present in "gh-present" mode. Logs the call args
+  # (excluding --body's value, which would defeat the no-stdout invariant
+  # — we capture name + repo only).
+  if [[ "$mode" == "gh-present" ]]; then
+    cat > "$tmp/bin/gh" <<EOF
+#!/usr/bin/env bash
+# Capture argv minus any --body value (the value-after-flag pattern).
+# Distinguish secret name (positional) from --body value (flag-value).
+out=()
+prev=""
+for a in "\$@"; do
+  if [[ "\$prev" == "--body" ]]; then
+    out+=("--body=<redacted>")
+  else
+    out+=("\$a")
+  fi
+  prev="\$a"
+done
+echo "gh \${out[*]}" >> "$tmp/gh.log"
+exit 0
+EOF
+    chmod +x "$tmp/bin/gh"
+  fi
+
+  # PATH controls whether gh is "installed". When mode is gh-missing or
+  # no-repo, we exclude the gh stub from PATH so `command -v gh` returns
+  # the system gh (or nothing). To force "gh missing" we put a sentinel
+  # directory at the front of PATH that has *only* the gcloud stub, then
+  # prepend a wrapper that hides any system gh by overshadowing it.
+  #
+  # Real PATH still appended so /usr/bin/env bash, head, grep, etc. work.
+  local PATH_TO_USE
+  if [[ "$mode" == "gh-present" ]]; then
+    PATH_TO_USE="$tmp/bin:$PATH"
+  else
+    # Build a sub-dir with only gcloud (no gh) so the test gh stub is
+    # NOT visible. We can't truly hide a system-installed gh from
+    # `command -v`, but the script's branch is gated on
+    # `command -v gh >/dev/null` — so we override `command` is too
+    # invasive. Instead we drop a `gh` shim that prints to a sentinel
+    # log and exits 127, plus we explicitly pre-test that the stub
+    # would never run (Test 25/26 assertions check for the FALLBACK
+    # log, which only fires when the script took the gh-missing path
+    # OR the no-repo path).
+    #
+    # Simpler: install a `gh` shim that echoes the failure marker, then
+    # use the marker to detect if `gh` was found. But the script uses
+    # `command -v gh >/dev/null 2>&1` which returns true if any gh is
+    # on PATH. To force false, we use a PATH that contains NO gh stub
+    # at all — but the system might have gh on the real PATH.
+    #
+    # Practical approach: skip the test if the harness can't truly
+    # hide gh. Detect by `command -v gh` BEFORE running.
+    mkdir -p "$tmp/bin-no-gh"
+    cp "$tmp/bin/gcloud" "$tmp/bin-no-gh/"
+    PATH_TO_USE="$tmp/bin-no-gh:/usr/bin:/bin"
+  fi
+
+  local repo_env=""
+  if [[ "$mode" != "no-repo" ]]; then
+    repo_env="acme/widget-shop"
+  fi
+
+  set +e
+  PATH="$PATH_TO_USE" \
+    GCP_PROJECT_ID="af-step7-test" \
+    BILLING_ACCOUNT_ID="FAKE" \
+    GITHUB_OWNER="acme" \
+    GITHUB_REPO="widget-shop" \
+    GITHUB_REPOSITORY="$repo_env" \
+    "$SCRIPT" --create-project > "$tmp/stdout.log" 2>&1
+  set -e
+
+  echo "$tmp"
+}
+
+# Test 24: gh present + GITHUB_REPOSITORY set → secrets pushed
+
+echo ""
+echo "Test 24: Step 7 pushes secrets when gh + GITHUB_REPOSITORY are set"
+
+T24=$(run_step7_test "gh-present")
+
+if grep -q "secrets.*Pushing GitHub Actions secrets to acme/widget-shop" "$T24/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} push-banner log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[secrets] Pushing GitHub Actions secrets to acme/widget-shop'"
+  cat "$T24/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Verify each expected secret was pushed (gh.log captures name + redacted body)
+for secret_name in GCP_PROJECT_ID GCP_SERVICE_ACCOUNT GCP_WORKLOAD_IDENTITY_PROVIDER; do
+  if grep -q "secret set $secret_name --repo acme/widget-shop" "$T24/gh.log"; then
+    echo -e "  ${GREEN}✓${NC} $secret_name pushed via gh secret set"
+    PASS=$((PASS + 1))
+  else
+    echo -e "  ${RED}✗${NC} expected gh secret set for $secret_name"
+    cat "$T24/gh.log"
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+# When GH_SECRETS_PUSHED=true, the footer should NOT print the manual values.
+# Specifically the WIF provider resource path should not appear.
+if ! grep -q "projects/12345/locations/global/workloadIdentityPools/github/providers/github" "$T24/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} footer suppresses manual values when secrets pushed"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} footer leaked WIF provider value when it shouldn't have"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 25: gh missing → fallback hint, manual values printed
+
+echo ""
+echo "Test 25: Step 7 falls back to printed values when gh CLI is missing"
+
+T25=$(run_step7_test "gh-missing")
+
+if grep -q "secrets.*gh CLI not on PATH" "$T25/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} gh-missing hint logged"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[secrets] gh CLI not on PATH; falling back...' in stdout"
+  cat "$T25/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Footer should print the manual values for copy-paste
+if grep -q "GCP_WORKLOAD_IDENTITY_PROVIDER = projects/12345/" "$T25/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} fallback footer prints WIF provider for manual entry"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected footer to print WIF provider in manual fallback"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 26: GITHUB_REPOSITORY unset → step silently skipped, no hint
+
+echo ""
+echo "Test 26: Step 7 silently skipped when GITHUB_REPOSITORY unset"
+
+T26=$(run_step7_test "no-repo")
+
+# No "[secrets]" log line at all when GITHUB_REPOSITORY is unset
+if ! grep -q "\[secrets\]" "$T26/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} no [secrets] log line when GITHUB_REPOSITORY unset"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} should not log [secrets] without GITHUB_REPOSITORY"
+  cat "$T26/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Footer falls back to manual values (same as Test 25's manual fallback)
+if grep -q "GCP_WORKLOAD_IDENTITY_PROVIDER = projects/12345/" "$T26/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} footer prints manual values when GITHUB_REPOSITORY unset"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected manual fallback when GITHUB_REPOSITORY unset"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""

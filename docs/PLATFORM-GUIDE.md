@@ -516,6 +516,34 @@ doesn't need a workshop-style cap.
 > radius (≤8 projects × $25 = ~$200 worst case), facilitator monitoring
 > is sufficient.
 
+### Auto-pushed GitHub secrets (Step 7)
+
+When `GITHUB_REPOSITORY=<owner>/<repo>` is set and `gh` is on PATH and
+authenticated, the provisioner pushes the per-attendee secrets directly
+into the participant's fork after provisioning completes:
+
+- `GCP_PROJECT_ID`
+- `GCP_SERVICE_ACCOUNT`
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` (when WIF was set up in Step 5.5)
+- `NEON_PARENT_BRANCH` (when Neon was provisioned in Step 5.7)
+
+This eliminates the most common day-1 failure: facilitators copy SA
+emails or WIF provider paths between projects by hand and get them
+wrong, surfacing later as opaque `iam.serviceAccountTokenCreator` 404s
+or WIF `invalid_target` errors.
+
+The wrapper (`provision-workshop-roster.sh`) automatically forwards each
+roster row's `github_full_repo` value as `GITHUB_REPOSITORY`, so for
+workshop runs no extra setup is needed.
+
+`GCP_SA_KEY` is intentionally NOT auto-pushed (long-lived credential —
+upload deliberately if you used `--with-sa-key`). The cohort-shared
+`NEON_API_KEY` and `NEON_PROJECT_ID` are also not auto-pushed; the
+facilitator sets those once via a separate `gh secret set` call.
+
+When `GITHUB_REPOSITORY` is unset or `gh` is missing, the script falls
+back to printing the values for manual entry (existing behavior).
+
 ### Cloud Run service pre-create (Step 5.8)
 
 `preview-deploy.yml` calls `gcloud run deploy --no-traffic --tag=pr-N`
