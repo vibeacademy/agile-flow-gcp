@@ -210,9 +210,23 @@ if [[ "$CREATE_PROJECT" == "true" ]]; then
     gcloud projects create "$GCP_PROJECT_ID"
   fi
 
-  echo "[link] Billing account $BILLING_ACCOUNT_ID"
-  gcloud billing projects link "$GCP_PROJECT_ID" \
-    --billing-account="$BILLING_ACCOUNT_ID"
+  # Skip the link call when this project is already linked to the same
+  # billing account. Re-linking an already-linked project is unnecessary
+  # AND fails with `Cloud billing quota exceeded` once you're at the
+  # billing account's project-link cap (5 by default on free tiers) —
+  # `billing projects link` is metered against that quota even when the
+  # project in question is already linked. Idempotent re-runs would
+  # otherwise fail on every wrapper invocation after the cap is hit,
+  # even though the desired state is already satisfied.
+  current_billing="$(gcloud billing projects describe "$GCP_PROJECT_ID" \
+    --format='value(billingAccountName)' 2>/dev/null || true)"
+  if [[ "$current_billing" == "billingAccounts/${BILLING_ACCOUNT_ID}" ]]; then
+    echo "[skip] Billing account $BILLING_ACCOUNT_ID already linked"
+  else
+    echo "[link] Billing account $BILLING_ACCOUNT_ID"
+    gcloud billing projects link "$GCP_PROJECT_ID" \
+      --billing-account="$BILLING_ACCOUNT_ID"
+  fi
 fi
 
 # ── Step 1.5: Override Domain Restricted Sharing (workshop projects) ─────

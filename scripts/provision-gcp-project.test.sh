@@ -330,6 +330,154 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 8b: Step 1 idempotent billing-link skip ────────────────────────
+# Reproduces the live bug observed during the 2026-04-29 dry-run: with 5
+# projects already linked to the billing account (the default cap), every
+# `billing projects link` call fails with `Cloud billing quota exceeded`
+# regardless of whether the project is already linked. Re-running the
+# wrapper on an already-provisioned project should detect the existing
+# link via `billing projects describe` and skip the link call.
+
+echo ""
+echo "Test 8b: Step 1 skips billing link when project already linked"
+
+T8B=$(mktemp -d -t aflowtest-XXXX)
+mkdir -p "$T8B/bin"
+
+# Stub: project exists + ACTIVE + own org; billing-describe returns the
+# expected billingAccountName so the new logic should take the [skip] path.
+# The link sub-command exits non-zero so an unwanted invocation surfaces.
+cat > "$T8B/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$T8B/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    if echo "\$*" | grep -q -- "--format"; then
+      echo "ACTIVE"
+    fi
+    exit 0
+    ;;
+  "projects get-iam-policy") exit 0 ;;
+  "billing projects")
+    case "\$3" in
+      describe)
+        # Mimic gcloud --format=value(billingAccountName) output for an
+        # already-linked project.
+        echo "billingAccounts/FAKE-BILLING-ID"
+        exit 0
+        ;;
+      link)
+        echo "FATAL: link should NOT be called when project already linked" >&2
+        exit 99
+        ;;
+    esac
+    ;;
+  "services enable") exit 1 ;;  # short-circuit past Step 2
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T8B/bin/gcloud"
+
+set +e
+PATH="$T8B/bin:$PATH" \
+  GCP_PROJECT_ID="af-already-linked" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING-ID" \
+  "$SCRIPT" --create-project > "$T8B/stdout.log" 2>&1
+set -e
+
+if grep -q "skip.*Billing account FAKE-BILLING-ID already linked" "$T8B/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip-link log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip] Billing account ... already linked' in stdout"
+  cat "$T8B/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Critical regression guard: link must NEVER be called when the project
+# is already linked to the same account. The fatal-stub on `link` would
+# fire if it did, but we also check the gcloud log to be explicit.
+if ! grep -q "billing projects link" "$T8B/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud billing projects link NOT invoked"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} link should NOT have been called; this is the live-bug regression"
+  FAIL=$((FAIL + 1))
+fi
+
+# Sanity: describe SHOULD have been called to make the decision.
+if grep -q "billing projects describe" "$T8B/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud billing projects describe was the probe"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected billing projects describe to probe current link"
+  cat "$T8B/gcloud.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# ── Test 8c: Step 1 still links when project linked to a DIFFERENT account ─
+# Edge case: the project exists and has billing enabled, but to a different
+# account than what BILLING_ACCOUNT_ID specifies. The script should still
+# call link to switch accounts (gcloud handles that case server-side).
+
+echo ""
+echo "Test 8c: Step 1 still links when project linked to a different account"
+
+T8C=$(mktemp -d -t aflowtest-XXXX)
+mkdir -p "$T8C/bin"
+
+cat > "$T8C/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$T8C/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    if echo "\$*" | grep -q -- "--format"; then
+      echo "ACTIVE"
+    fi
+    exit 0
+    ;;
+  "projects get-iam-policy") exit 0 ;;
+  "billing projects")
+    case "\$3" in
+      describe)
+        # Linked to a DIFFERENT billing account than BILLING_ACCOUNT_ID
+        echo "billingAccounts/SOME-OTHER-ACCOUNT"
+        exit 0
+        ;;
+      link) exit 0 ;;
+    esac
+    ;;
+  "services enable") exit 1 ;;  # short-circuit past Step 2
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T8C/bin/gcloud"
+
+set +e
+PATH="$T8C/bin:$PATH" \
+  GCP_PROJECT_ID="af-other-billing" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING-ID" \
+  "$SCRIPT" --create-project > "$T8C/stdout.log" 2>&1
+set -e
+
+if grep -q "link.*Billing account FAKE-BILLING-ID" "$T8C/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} [link] log line fired (different account)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[link] Billing account ...' when linked to a different account"
+  cat "$T8C/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "billing projects link af-other-billing" "$T8C/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud billing projects link was invoked"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected billing projects link to be called"
+  cat "$T8C/gcloud.log"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Test 9-11: Step 1.5 domain-restricted-sharing override ──────────────
 #
 # The script's Step 1.5 has TWO branches now (was three pre-2026-04-28).
