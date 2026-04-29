@@ -516,6 +516,32 @@ doesn't need a workshop-style cap.
 > radius (≤8 projects × $25 = ~$200 worst case), facilitator monitoring
 > is sufficient.
 
+### Cloud Run service pre-create (Step 5.8)
+
+`preview-deploy.yml` calls `gcloud run deploy --no-traffic --tag=pr-N`
+to create per-PR preview revisions. That works after a project's first
+deploy, but on a brand-new project gcloud rejects the very first PR
+with:
+
+```
+ERROR: (gcloud.run.deploy) --no-traffic not supported when creating
+a new service.
+```
+
+To prevent this, the provisioner pre-creates the Cloud Run service with
+a placeholder image (Google's `us-docker.pkg.dev/cloudrun/container/hello`)
+during Step 5.8. The first real preview-deploy overwrites the
+placeholder revision with the participant's container.
+
+The step is idempotent — if the service already exists (re-runs, or
+because `deploy.yml` already shipped from the participant's fork), it
+logs `[skip]` and continues. The placeholder revision pins
+`--service-account` to the deployer SA and `--allow-unauthenticated` so
+the first real deploy doesn't change either property.
+
+Override the service name with `CLOUD_RUN_SERVICE=<name>`; defaults to
+`agile-flow-app`.
+
 ### What the lifecycle scripts do NOT do
 
 - Workload Identity Federation setup — currently manual per project

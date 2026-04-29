@@ -1375,6 +1375,154 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 22-23: Step 5.8 Cloud Run service pre-create ───────────────────
+#
+# Step 5.8 has two branches:
+#   - service does not exist  → `gcloud run deploy` with hello placeholder
+#   - service already exists  → [skip] log line, no deploy call
+#
+# The harness stubs the full gcloud surface so the script runs through
+# Step 6 without erroring out elsewhere.
+
+run_step5_8_test() {
+  local service_state="$1"   # "absent" | "present"
+  local tmp; tmp=$(mktemp -d -t aflowtest-XXXX)
+  mkdir -p "$tmp/bin"
+
+  cat > "$tmp/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$tmp/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    if echo "\$*" | grep -q "projectNumber"; then
+      echo "12345"
+    elif echo "\$*" | grep -q "lifecycleState"; then
+      echo "ACTIVE"
+    else
+      exit 1
+    fi
+    exit 0
+    ;;
+  "projects create"|"projects get-iam-policy"|"projects add-iam-policy-binding") exit 0 ;;
+  "billing projects") exit 0 ;;
+  "billing accounts") exit 0 ;;
+  "resource-manager org-policies")
+    case "\$3" in
+      describe) exit 1 ;;  # no policy at project level → apply override
+      set-policy) exit 0 ;;
+    esac
+    ;;
+  "services enable") exit 0 ;;
+  "artifacts repositories")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+    esac
+    ;;
+  "iam service-accounts")
+    case "\$3" in
+      describe) exit 1 ;;
+      create)   exit 0 ;;
+      add-iam-policy-binding) exit 0 ;;
+    esac
+    ;;
+  "iam workload-identity-pools") exit 1 ;;  # skip WIF
+  "secrets describe") exit 1 ;;             # skip Neon (no NEON_API_KEY)
+  "run services")
+    # describe is what Step 5.8 calls to detect existence
+    case "\$3" in
+      describe)
+        case "$service_state" in
+          present) exit 0 ;;   # service exists → skip path
+          absent)  exit 1 ;;   # service missing → create path
+        esac
+        ;;
+    esac
+    ;;
+  "run deploy") exit 0 ;;       # placeholder deploy succeeds
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$tmp/bin/gcloud"
+
+  set +e
+  PATH="$tmp/bin:$PATH" \
+    GCP_PROJECT_ID="af-step58-test" \
+    BILLING_ACCOUNT_ID="FAKE" \
+    "$SCRIPT" --create-project > "$tmp/stdout.log" 2>&1
+  set -e
+
+  echo "$tmp"
+}
+
+# Test 22: service absent → placeholder deploy invoked
+
+echo ""
+echo "Test 22: Step 5.8 pre-creates Cloud Run service when absent"
+
+T22=$(run_step5_8_test "absent")
+
+if grep -q "create.*Cloud Run service.*agile-flow-app.*placeholder" "$T22/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} create log line names service + placeholder"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[create] Cloud Run service ... placeholder' in stdout"
+  cat "$T22/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "run deploy agile-flow-app" "$T22/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud run deploy invoked"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'run deploy agile-flow-app' in gcloud.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Critical: must use Google's hello-world placeholder image, not a real image.
+if grep -q "image=us-docker.pkg.dev/cloudrun/container/hello" "$T22/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} placeholder image is the official Google hello-world"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected --image=us-docker.pkg.dev/cloudrun/container/hello"
+  grep "run deploy" "$T22/gcloud.log" || echo "(no run deploy call found)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Critical: --service-account must pin to deployer SA so first real deploy
+# doesn't drift the runtime SA from the placeholder revision.
+if grep -q "service-account=deployer@af-step58-test.iam.gserviceaccount.com" "$T22/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} --service-account pinned to deployer SA"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected --service-account=deployer@... in run deploy call"
+  FAIL=$((FAIL + 1))
+fi
+
+# Test 23: service present → [skip], no deploy call
+
+echo ""
+echo "Test 23: Step 5.8 idempotent when service already exists"
+
+T23=$(run_step5_8_test "present")
+
+if grep -q "skip.*Cloud Run service.*agile-flow-app.*already exists" "$T23/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} skip-existing log line"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[skip] Cloud Run service ... already exists' in stdout"
+  cat "$T23/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if ! grep -q "run deploy" "$T23/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} gcloud run deploy NOT invoked (idempotent)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} run deploy should NOT have been called when service exists"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""
