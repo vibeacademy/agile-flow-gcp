@@ -36,6 +36,15 @@
 #                        When set, BILLING_ACCOUNT_ID is also required.
 #                        The runner needs roles/billing.costsManager on
 #                        the billing account. When unset, step is skipped.
+#   GITHUB_REPOSITORY    (optional) `<owner>/<repo>` of the participant's
+#                        fork (e.g. `acme/widget-shop`). Enables Step 7,
+#                        which pushes GCP_PROJECT_ID, GCP_SERVICE_ACCOUNT,
+#                        GCP_WORKLOAD_IDENTITY_PROVIDER, and (when Neon
+#                        is configured) NEON_PARENT_BRANCH directly into
+#                        the fork's Actions secrets via `gh secret set`.
+#                        Requires `gh` on PATH and authenticated. When
+#                        either is missing, the script falls back to
+#                        printing the values for manual entry.
 #
 # Notes:
 # - This script is idempotent. Re-running skips resources that already exist.
@@ -766,6 +775,70 @@ if [[ "$WITH_SA_KEY" == "true" ]]; then
   fi
 fi
 
+# ── Step 7: Push GitHub repo secrets ────────────────────────────────────
+#
+# Set the GitHub Actions secrets the deploy workflows need, using the
+# values this script just minted. Eliminates the most common day-1
+# failure: facilitators copy SA emails or WIF provider paths between
+# templates and forks and get them wrong, which surfaces later as opaque
+# `iam.serviceAccountTokenCreator` 404s or `invalid_target` WIF errors.
+# See #49 / docs/UPSTREAM-INTAKE for the original report.
+#
+# Gated on:
+#   1. `gh` CLI present on PATH
+#   2. GITHUB_REPOSITORY env var set (facilitator passes the participant's
+#      `<owner>/<repo>` — same value the wrapper already has from
+#      `github_full_repo`).
+#
+# When either is missing, log a hint and fall back to the printed
+# next-steps block (existing behavior). No silent skip — facilitators
+# need to know whether secrets were set or not.
+#
+# Secret values are passed via `--body-file <(printf ...)` so they never
+# appear on the command line, in shell history, or in stdout logs. Only
+# the secret name and the gh confirmation are echoed.
+
+GH_SECRETS_PUSHED="false"
+if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
+  if command -v gh >/dev/null 2>&1; then
+    echo ""
+    echo "[secrets] Pushing GitHub Actions secrets to $GITHUB_REPOSITORY"
+
+    # Helper: set a secret without ever echoing the value. Body comes
+    # from a process substitution so it's never an argv element.
+    push_secret() {
+      local name="$1"
+      local value="$2"
+      if [[ -z "$value" ]]; then
+        return 0
+      fi
+      gh secret set "$name" --repo "$GITHUB_REPOSITORY" \
+        --body "$value" >/dev/null
+      echo "  [set] $name"
+    }
+
+    push_secret "GCP_PROJECT_ID" "$GCP_PROJECT_ID"
+    push_secret "GCP_SERVICE_ACCOUNT" "$SA_EMAIL"
+    if [[ -n "${WIF_PROVIDER_RESOURCE:-}" ]]; then
+      push_secret "GCP_WORKLOAD_IDENTITY_PROVIDER" "$WIF_PROVIDER_RESOURCE"
+    fi
+    if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
+      push_secret "NEON_PARENT_BRANCH" "$NEON_BRANCH_NAME"
+    fi
+
+    # SA key is intentionally NOT auto-pushed even when --with-sa-key
+    # was used — it's a long-lived credential that should be uploaded
+    # deliberately, not as a side-effect of provisioning. The footer
+    # still tells the user how to set it.
+
+    GH_SECRETS_PUSHED="true"
+  else
+    echo ""
+    echo "[secrets] gh CLI not on PATH; falling back to printed next-steps."
+    echo "          Install gh from https://cli.github.com/ for automatic secret setting."
+  fi
+fi
+
 # ── Done ─────────────────────────────────────────────────────────────────
 
 echo ""
@@ -775,19 +848,41 @@ echo "=================================="
 echo ""
 echo "Next steps:"
 echo ""
-echo "1. Set these GitHub repository secrets:"
-echo ""
-echo "   GCP_PROJECT_ID         = $GCP_PROJECT_ID"
-if [[ "$WITH_SA_KEY" == "true" ]]; then
-  echo "   GCP_SA_KEY             = (contents of ${GCP_PROJECT_ID}-deployer-key.json)"
-elif [[ -n "${WIF_PROVIDER_RESOURCE:-}" ]]; then
-  echo "   GCP_WORKLOAD_IDENTITY_PROVIDER = $WIF_PROVIDER_RESOURCE"
-  echo "   GCP_SERVICE_ACCOUNT    = $SA_EMAIL"
+if [[ "$GH_SECRETS_PUSHED" == "true" ]]; then
+  echo "1. GitHub Actions secrets already set on $GITHUB_REPOSITORY:"
+  echo ""
+  echo "   - GCP_PROJECT_ID"
+  echo "   - GCP_SERVICE_ACCOUNT"
+  if [[ -n "${WIF_PROVIDER_RESOURCE:-}" ]]; then
+    echo "   - GCP_WORKLOAD_IDENTITY_PROVIDER"
+  fi
+  if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
+    echo "   - NEON_PARENT_BRANCH"
+  fi
+  echo ""
+  if [[ "$WITH_SA_KEY" == "true" ]]; then
+    echo "   You ran with --with-sa-key. Upload the SA key file deliberately:"
+    echo "     gh secret set GCP_SA_KEY --repo $GITHUB_REPOSITORY \\"
+    echo "       --body-file ${GCP_PROJECT_ID}-deployer-key.json"
+    echo ""
+  fi
 else
-  echo "   GCP_WORKLOAD_IDENTITY_PROVIDER = (set GITHUB_USERNAME or see docs/PLATFORM-GUIDE.md Step 5)"
-  echo "   GCP_SERVICE_ACCOUNT    = $SA_EMAIL"
+  echo "1. Set these GitHub repository secrets:"
+  echo ""
+  echo "   GCP_PROJECT_ID         = $GCP_PROJECT_ID"
+  if [[ "$WITH_SA_KEY" == "true" ]]; then
+    echo "   GCP_SA_KEY             = (contents of ${GCP_PROJECT_ID}-deployer-key.json)"
+  elif [[ -n "${WIF_PROVIDER_RESOURCE:-}" ]]; then
+    echo "   GCP_WORKLOAD_IDENTITY_PROVIDER = $WIF_PROVIDER_RESOURCE"
+    echo "   GCP_SERVICE_ACCOUNT    = $SA_EMAIL"
+  else
+    echo "   GCP_WORKLOAD_IDENTITY_PROVIDER = (set GITHUB_USERNAME or see docs/PLATFORM-GUIDE.md Step 5)"
+    echo "   GCP_SERVICE_ACCOUNT    = $SA_EMAIL"
+  fi
+  echo ""
+  echo "   (Tip: set GITHUB_REPOSITORY and have 'gh' on PATH to auto-push these.)"
+  echo ""
 fi
-echo ""
 if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
   # Step 5.7 already created the Neon branch and database-url secret.
   # Tell the participant what to set on their fork; no manual gcloud.
@@ -799,10 +894,14 @@ if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
   echo "   The 'database-url' Secret Manager secret was created automatically"
   echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
   echo ""
-  echo "3. Set NEON_PARENT_BRANCH on the participant's fork so per-PR previews"
-  echo "   inherit from this attendee's branch (otherwise they branch from main):"
-  echo ""
-  echo "   NEON_PARENT_BRANCH     = $NEON_BRANCH_NAME"
+  if [[ "$GH_SECRETS_PUSHED" == "true" ]]; then
+    echo "3. (NEON_PARENT_BRANCH was set automatically above.)"
+  else
+    echo "3. Set NEON_PARENT_BRANCH on the participant's fork so per-PR previews"
+    echo "   inherit from this attendee's branch (otherwise they branch from main):"
+    echo ""
+    echo "   NEON_PARENT_BRANCH     = $NEON_BRANCH_NAME"
+  fi
   echo ""
   echo "4. (Optional) Set these repository variables (non-secret):"
 else

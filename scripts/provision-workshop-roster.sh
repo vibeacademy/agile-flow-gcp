@@ -225,6 +225,7 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   GITHUB_OWNER="$github_owner" \
   GITHUB_REPO="$github_repo" \
   GITHUB_USERNAME="$github_user" \
+  GITHUB_REPOSITORY="$github_full_repo" \
   NEON_BRANCH_NAME="$neon_branch" \
   NEON_API_KEY="${NEON_API_KEY:-}" \
   NEON_PROJECT_ID="${NEON_PROJECT_ID:-}" \
