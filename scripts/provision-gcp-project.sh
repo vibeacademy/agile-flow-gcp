@@ -409,14 +409,21 @@ if [[ -n "$WIF_OWNER" ]]; then
   #
   # add-iam-policy-binding is idempotent — re-running with the same member
   # is a no-op.
+  #
+  # The SA's IAM policy machinery has the same eventual-consistency window
+  # as project-level IAM bindings: a freshly-created SA can return
+  # PERMISSION_DENIED on its own setIamPolicy for a few seconds. Wrap in
+  # the retry helper to absorb that lag (it already classifies the
+  # IAM_PERMISSION_DENIED signature as transient).
   WIF_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository/${WIF_OWNER}/${WIF_REPO_NAME}"
   for wif_role in roles/iam.workloadIdentityUser roles/iam.serviceAccountTokenCreator; do
     echo "[bind] $wif_role <- ${WIF_OWNER}/${WIF_REPO_NAME}"
-    gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
-      --role="$wif_role" \
-      --member="$WIF_MEMBER" \
-      --project="$GCP_PROJECT_ID" \
-      --quiet >/dev/null
+    retry_eventual_consistency "wif bind $wif_role" -- \
+      gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
+        --role="$wif_role" \
+        --member="$WIF_MEMBER" \
+        --project="$GCP_PROJECT_ID" \
+        --quiet >/dev/null
   done
 
   WIF_PROVIDER_RESOURCE="projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/providers/${WIF_PROVIDER}"
