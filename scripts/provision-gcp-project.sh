@@ -705,6 +705,48 @@ else
   NEON_BRANCH_PROVISIONED="false"
 fi
 
+# ── Step 5.8: Pre-create Cloud Run service ──────────────────────────────
+#
+# preview-deploy.yml calls `gcloud run deploy --no-traffic --tag=pr-N`
+# unconditionally. That works for any deploy after the first, but on the
+# very first deploy gcloud rejects with:
+#
+#   ERROR: (gcloud.run.deploy) --no-traffic not supported when creating a
+#   new service.
+#
+# A fresh fork's first ever PR preview always fails until the service
+# exists. Pre-creating it here with a placeholder image ("hello") makes
+# the workflow's assumption true from day 0. The first real preview-deploy
+# overwrites the placeholder revision.
+#
+# Idempotent: if the service already exists (re-runs, or because deploy.yml
+# already ran from the participant's fork), this step is a no-op.
+#
+# Pinned to:
+#   --service-account = the deployer SA created in Step 4
+#   --allow-unauthenticated = matches what preview-deploy.yml will produce,
+#                              so first real deploy doesn't change ACL
+#   --port=8080 = matches the FastAPI Dockerfile and preview-deploy config
+
+SERVICE_NAME="${CLOUD_RUN_SERVICE:-agile-flow-app}"
+
+if gcloud run services describe "$SERVICE_NAME" \
+    --region="$GCP_REGION" \
+    --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+  echo "[skip] Cloud Run service '$SERVICE_NAME' already exists"
+else
+  echo "[create] Cloud Run service '$SERVICE_NAME' (placeholder revision)"
+  retry_eventual_consistency "cloud run pre-create" -- \
+    gcloud run deploy "$SERVICE_NAME" \
+      --image=us-docker.pkg.dev/cloudrun/container/hello \
+      --region="$GCP_REGION" \
+      --service-account="$SA_EMAIL" \
+      --allow-unauthenticated \
+      --port=8080 \
+      --project="$GCP_PROJECT_ID" \
+      --quiet >/dev/null
+fi
+
 # ── Step 6: Service account key (workshop shortcut) ─────────────────────
 
 if [[ "$WITH_SA_KEY" == "true" ]]; then
