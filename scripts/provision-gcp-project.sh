@@ -900,17 +900,29 @@ fi
 if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
   # Step 5.7 already created the Neon branch and database-url secret.
   # Tell the participant what to set on their fork; no manual gcloud.
-  echo "2. Set these GitHub secrets from the Neon console (shared across cohort):"
-  echo ""
-  echo "   NEON_API_KEY           = (from Neon Settings -> API Keys)"
-  echo "   NEON_PROJECT_ID        = (from Neon Settings -> General)"
-  echo ""
-  echo "   The 'database-url' Secret Manager secret was created automatically"
-  echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
-  echo ""
   if [[ "$GH_SECRETS_PUSHED" == "true" ]]; then
-    echo "3. (NEON_PARENT_BRANCH was set automatically above.)"
+    # Fork is known and gh is available — print the exact loop the
+    # facilitator should run for the cohort-shared Neon secrets. These
+    # are intentionally NOT auto-pushed by Step 7 because they're the
+    # same value across every fork; coupling per-attendee provisioning
+    # to cohort-level state would make rotation harder.
+    echo "2. Set the cohort-shared Neon secrets on $GITHUB_REPOSITORY:"
+    echo ""
+    echo "   gh secret set NEON_API_KEY    --repo $GITHUB_REPOSITORY --body \"\$NEON_API_KEY\""
+    echo "   gh secret set NEON_PROJECT_ID --repo $GITHUB_REPOSITORY --body \"\$NEON_PROJECT_ID\""
+    echo ""
+    echo "   (NEON_PARENT_BRANCH was set automatically above.)"
+    echo "   The 'database-url' Secret Manager secret was created automatically"
+    echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
   else
+    echo "2. Set these GitHub secrets from the Neon console (shared across cohort):"
+    echo ""
+    echo "   NEON_API_KEY           = (from Neon Settings -> API Keys)"
+    echo "   NEON_PROJECT_ID        = (from Neon Settings -> General)"
+    echo ""
+    echo "   The 'database-url' Secret Manager secret was created automatically"
+    echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
+    echo ""
     echo "3. Set NEON_PARENT_BRANCH on the participant's fork so per-PR previews"
     echo "   inherit from this attendee's branch (otherwise they branch from main):"
     echo ""

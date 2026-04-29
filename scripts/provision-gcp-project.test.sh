@@ -1914,6 +1914,205 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 27: cohort-shared Neon secret loop in footer ───────────────────
+#
+# When the wrapper auto-pushes per-attendee secrets (Step 7 succeeded)
+# AND the Neon branch was provisioned, the footer should print the
+# exact `gh secret set` loop the facilitator runs for the cohort-shared
+# secrets (NEON_API_KEY, NEON_PROJECT_ID). These two are intentionally
+# NOT auto-pushed by Step 7 because they're the same value across every
+# fork in the cohort; coupling per-attendee provisioning to cohort state
+# would make rotation harder.
+#
+# The dry-run on 2026-04-29 surfaced the gap: the wrapper completed
+# successfully, the participant fork had GCP_PROJECT_ID etc. set, but
+# /api/health worked and `/` returned 500 because NEON_API_KEY was
+# never set on the fork — the facilitator hadn't run a manual `gh
+# secret set` loop. Making this loop visible at provisioning-completion
+# time is the upstream remedy.
+
+echo ""
+echo "Test 27: Footer prints cohort-shared Neon secret loop when Step 7 + Neon both ran"
+
+T27=$(mktemp -d -t aflowtest-XXXX)
+mkdir -p "$T27/bin"
+
+# Stub gcloud + curl + gh so the inner script reaches the footer with
+# both GH_SECRETS_PUSHED=true and NEON_BRANCH_PROVISIONED=true.
+cat > "$T27/bin/gcloud" <<EOF
+#!/usr/bin/env bash
+echo "gcloud \$*" >> "$T27/gcloud.log"
+case "\$1 \$2" in
+  "projects describe")
+    if echo "\$*" | grep -q "projectNumber"; then echo "12345"
+    elif echo "\$*" | grep -q "lifecycleState"; then echo "ACTIVE"
+    else exit 1; fi
+    exit 0 ;;
+  "projects create"|"projects get-iam-policy"|"projects add-iam-policy-binding") exit 0 ;;
+  "billing projects")
+    case "\$3" in
+      describe) echo "billingAccounts/FAKE"; exit 0 ;;
+      link) exit 0 ;;
+    esac ;;
+  "billing accounts") exit 0 ;;
+  "resource-manager org-policies")
+    case "\$3" in
+      describe) exit 1 ;;
+      set-policy) exit 0 ;;
+    esac ;;
+  "services enable") exit 0 ;;
+  "artifacts repositories")
+    case "\$3" in
+      describe) exit 1 ;;
+      create) exit 0 ;;
+    esac ;;
+  "iam service-accounts")
+    case "\$3" in
+      describe) exit 1 ;;
+      create) exit 0 ;;
+      add-iam-policy-binding) exit 0 ;;
+    esac ;;
+  "iam workload-identity-pools")
+    case "\$3" in
+      describe) exit 1 ;;
+      create) exit 0 ;;
+      providers)
+        case "\$4" in
+          describe) exit 1 ;;
+          create-oidc) exit 0 ;;
+        esac ;;
+    esac ;;
+  "secrets describe") exit 1 ;;
+  "secrets create"|"secrets versions"|"secrets add-iam-policy-binding") exit 0 ;;
+  "run services") exit 0 ;;
+  "run deploy") exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T27/bin/gcloud"
+
+# Curl stub for the Neon API: respond to the 3 endpoints the script calls.
+# Distinguish GET (list branches) from POST (create branch) the same way
+# the existing 5.7 stub does — by checking for `-X POST` in argv.
+cat > "$T27/bin/curl" <<EOF
+#!/usr/bin/env bash
+url=""
+out_file=""
+write_out=""
+prev=""
+is_post=false
+for a in "\$@"; do
+  case "\$a" in *console.neon.tech/api/v2*) url="\$a" ;; esac
+  case "\$prev" in --output) out_file="\$a" ;; --write-out) write_out="\$a" ;; esac
+  if [[ "\$a" == "POST" ]]; then is_post=true; fi
+  prev="\$a"
+done
+emit() {
+  if [[ -n "\$out_file" ]]; then printf '%s' "\$1" > "\$out_file"
+  else printf '%s' "\$1"; fi
+  if [[ -n "\$write_out" ]]; then printf '%s' "\$2"; fi
+}
+case "\$url" in
+  *"/connection_uri"*)
+    emit '{"uri":"postgresql://u:p@ep-xxx-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"}' "200"
+    exit 0 ;;
+  *"/branches"*)
+    if \$is_post; then
+      emit '{"branch":{"id":"br-tck517","name":"tck517"}}' "201"
+      exit 0
+    else
+      emit '{"branches":[{"id":"br-main","name":"main","default":true}]}' "200"
+      exit 0
+    fi
+    ;;
+  *) emit '{"error":"unhandled"}' "500"; exit 1 ;;
+esac
+EOF
+chmod +x "$T27/bin/curl"
+
+# gh stub: same redact-body pattern as Test 24's harness.
+cat > "$T27/bin/gh" <<EOF
+#!/usr/bin/env bash
+out=()
+prev=""
+for a in "\$@"; do
+  if [[ "\$prev" == "--body" ]]; then out+=("--body=<redacted>"); else out+=("\$a"); fi
+  prev="\$a"
+done
+echo "gh \${out[*]}" >> "$T27/gh.log"
+exit 0
+EOF
+chmod +x "$T27/bin/gh"
+
+set +e
+PATH="$T27/bin:$PATH" \
+  GCP_PROJECT_ID="af-step27-test" \
+  BILLING_ACCOUNT_ID="FAKE" \
+  GITHUB_OWNER="acme" \
+  GITHUB_REPO="widget-shop" \
+  GITHUB_REPOSITORY="acme/widget-shop" \
+  NEON_API_KEY="fake-key" \
+  NEON_PROJECT_ID="fake-proj" \
+  NEON_BRANCH_NAME="tck517" \
+  "$SCRIPT" --create-project > "$T27/stdout.log" 2>&1
+set -e
+
+# Both code paths must have run — sanity check before the new assertions.
+if grep -q "Pushing GitHub Actions secrets to acme/widget-shop" "$T27/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} Step 7 push branch was active (sanity)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected Step 7 to push (test prerequisite); harness misconfigured"
+  cat "$T27/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+if grep -q "branch created" "$T27/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} Step 5.7 Neon branch was created (sanity)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected Neon branch creation (test prerequisite); harness misconfigured"
+  cat "$T27/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Core regression-guard assertions: the footer must print the exact
+# gh-secret-set commands for the two cohort-shared secrets so a
+# facilitator can copy-paste from the wrapper output.
+if grep -q "gh secret set NEON_API_KEY    --repo acme/widget-shop" "$T27/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} footer prints gh secret set NEON_API_KEY loop"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected NEON_API_KEY gh-secret-set loop in footer"
+  cat "$T27/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "gh secret set NEON_PROJECT_ID --repo acme/widget-shop" "$T27/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} footer prints gh secret set NEON_PROJECT_ID loop"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected NEON_PROJECT_ID gh-secret-set loop in footer"
+  FAIL=$((FAIL + 1))
+fi
+
+# The footer must NOT actually push these — they're cohort-shared, not
+# per-attendee. gh.log should only contain the 4 per-attendee secrets.
+if ! grep -q "gh secret set NEON_API_KEY" "$T27/gh.log"; then
+  echo -e "  ${GREEN}✓${NC} cohort-shared NEON_API_KEY was NOT auto-pushed"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} NEON_API_KEY was pushed automatically; should be cohort-manual"
+  cat "$T27/gh.log"
+  FAIL=$((FAIL + 1))
+fi
+if ! grep -q "gh secret set NEON_PROJECT_ID" "$T27/gh.log"; then
+  echo -e "  ${GREEN}✓${NC} cohort-shared NEON_PROJECT_ID was NOT auto-pushed"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} NEON_PROJECT_ID was pushed automatically; should be cohort-manual"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""
