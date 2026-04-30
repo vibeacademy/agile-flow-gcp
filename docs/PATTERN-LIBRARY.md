@@ -1115,8 +1115,8 @@ from Cloud Run!". Fixed in #66.
 
 **Gotcha:** Cloud Run treats plain environment variables and Secret
 Manager mounts as *different types* on the same key. Once a service
-has `DATABASE_URL` set as a plain env var, you can't switch it to a
-secret mount without an explicit clear step — gcloud refuses with:
+has `DATABASE_URL` set as a plain env var, switching it to a secret
+mount (or vice versa) on the next deploy fails with:
 
 ```text
 ERROR: (gcloud.run.deploy) Cannot update environment variable
@@ -1124,41 +1124,80 @@ ERROR: (gcloud.run.deploy) Cannot update environment variable
 a different type.
 ```
 
-The error is opaque: nothing in the message hints that this is a
-state-drift issue rather than a permission, syntax, or quota problem.
-The natural debugging path (re-check IAM, re-check secret existence,
+The error is opaque — nothing in the message hints that this is
+state-drift rather than a permission, syntax, or quota issue. The
+natural debugging path (re-check IAM, re-check secret existence,
 re-check region) goes nowhere.
 
-The same trap fires in reverse — moving from a secret mount to a
-plain env var also fails until the secret mount is explicitly removed.
+The trap is especially nasty when **two workflows write the same
+service** with different types — for example, a production workflow
+that mounts the secret and a preview workflow that passes the value
+as a literal. Each workflow succeeds in isolation; whichever ran most
+recently "wins" the type and the next run of the other workflow
+fails. Adding `--remove-env-vars=KEY` (or `--remove-secrets=KEY`) on
+just one side patches that direction but leaves the other broken on
+the next alternation. The 2026-04-29 cross-workflow analysis
+(`session-journals/2026-04-29.md` Bug 2) calls this out: *"A naive
+defensive fix — adding `--remove-env-vars` and `--remove-secrets` —
+does not solve this. It only patches one direction at a time."*
 
-**Pattern:** Always pair `--remove-env-vars=KEY` with `--set-secrets`
-(or `secrets:` in `deploy-cloudrun@v2`) when the deploy step expects
-the value to come from Secret Manager. `--remove-env-vars` is
-idempotent — no-op when the var doesn't exist — so it's safe to
-include unconditionally.
+**Pattern:** Use the **same env-var type on every workflow that
+deploys the service.** When prod and preview both write
+`DATABASE_URL`, both should write it as a plain `env_vars:` literal
+(or both as a secret mount — but plain literal is the cheaper end of
+the trade-off, since preview already needs a literal anyway to
+inject the per-PR Neon branch URL).
 
 ```yaml
+# .github/workflows/deploy.yml — production
 - name: Deploy to Cloud Run
   uses: google-github-actions/deploy-cloudrun@v2
   with:
     service: agile-flow-app
     image: ${{ env.IMAGE }}
     region: us-central1
-    flags: --remove-env-vars=DATABASE_URL
-    secrets: |
-      DATABASE_URL=database-url:latest
+    flags: --traffic=latest=100
+    env_vars: |
+      ENVIRONMENT=production
+      DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL }}
 ```
 
-```bash
-# Equivalent direct gcloud:
-gcloud run services update agile-flow-app \
-  --region=us-central1 \
-  --remove-env-vars=DATABASE_URL \
-  --set-secrets=DATABASE_URL=database-url:latest
+```yaml
+# .github/workflows/preview-deploy.yml — preview
+- name: Deploy preview revision
+  uses: google-github-actions/deploy-cloudrun@v2
+  with:
+    service: agile-flow-app
+    image: ${{ env.IMAGE }}
+    region: us-central1
+    flags: --no-traffic --tag=pr-${{ github.event.pull_request.number }}
+    env_vars: |
+      ENVIRONMENT=preview
+      DATABASE_URL=${{ steps.neon-branch.outputs.db_url }}
 ```
 
-Surfaced in the 2026-04-29 dry-run when the production deploy
-inherited `DATABASE_URL` as a plain env var (set by a prior preview
-deploy that hadn't yet been replaced with the Secret Manager mount).
-Fixed in #68.
+Both workflows write the same key as the same type. The collision
+failure mode is structurally impossible regardless of run order.
+
+**Trade-off:** the connection string is now a plain env var on the
+revision instead of a Secret Manager mount. Acceptable because (a)
+preview already exposes the Neon URL as a literal, so consistency
+between the two pipelines is more valuable than asymmetric hardening
+of just one side; (b) Cloud Run revisions are immutable and the env
+vars are scoped to the service, not logged or globally readable.
+
+**Workarounds that don't scale:** `--remove-env-vars=KEY` (or
+`--remove-secrets=KEY`) paired with the opposite type works when only
+one workflow ever deploys the service, since each run can clear what
+the previous run wrote. It breaks down the moment prod and preview
+alternate against the same service — see #66 (the workaround) and
+#68 (the structural fix). Larger remediation options like per-PR
+secrets (`database-url-pr-N`) or separate services per environment
+(`agile-flow-app-prod`, `agile-flow-app-pr-N`) are tracked for
+post-workshop work.
+
+Surfaced in the 2026-04-29 dry-run when production and preview
+deploys alternated against the same service. First fixed defensively
+in #66 with `--remove-env-vars=DATABASE_URL`; later re-fixed
+structurally in #68 by switching both workflows to the same type
+(plain env var).
