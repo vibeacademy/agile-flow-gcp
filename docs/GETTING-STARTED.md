@@ -57,14 +57,35 @@ Now clone it locally:
 cd ~/projects   # or wherever you keep repos
 git clone https://github.com/your-name/my-app.git
 cd my-app
-git config --local core.hooksPath scripts/hooks
+bash scripts/setup-solo-mode.sh
 npm install
 ```
 
-The `git config` line activates the pre-push quality gate. Without it,
-broken code can reach `main` and trigger a failing production deploy.
-The setting is per-clone, not stored in the repo, so every fresh clone
-needs this command once.
+`scripts/setup-solo-mode.sh` is the recommended bootstrap for solo mode
+(one personal account plays all roles — workshop attendees, individual
+learners, framework evaluators). It activates the pre-push quality
+gate, persists `AGILE_FLOW_SOLO_MODE=true` to your shell rc, audits
+stale `GITHUB_PERSONAL_ACCESS_TOKEN*` env vars (which silently override
+`gh auth switch`), verifies your gh token has the required scopes, and
+confirms you have admin access on the fork. It does NOT cache tokens
+to disk and does NOT modify your shell rc to remove tokens — it
+surfaces them with the exact removal command.
+
+After it completes, **restart your shell or Claude Code** so the new
+`AGILE_FLOW_SOLO_MODE` env var is picked up by agent subprocesses.
+
+If you prefer the minimal manual path (no env-var management, no scope
+verification), the single command the script wraps for activating the
+hook is:
+
+```bash
+git config --local core.hooksPath scripts/hooks
+```
+
+For multi-bot setups (worker + reviewer + human merger, with
+provisioned bot accounts), use `scripts/setup-accounts.sh` instead.
+Solo mode is the default for new forks; multi-bot mode is the
+production opt-in.
 
 **You should see:** Dependencies installed with no errors.
 
