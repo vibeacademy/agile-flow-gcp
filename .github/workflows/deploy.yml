@@ -162,7 +162,13 @@ jobs:
             DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL }}
 
       - name: Route traffic to latest revision
-        if: steps.check_secrets.outputs.skip != 'true'
+        # success() gates on all prior steps succeeding — without it,
+        # GH Actions evaluates ONLY the listed condition and runs this
+        # step even when the deploy failed (default failure-skip is
+        # bypassed when ANY `if:` is present). Migrating traffic to a
+        # half-deployed or unhealthy revision would turn a recoverable
+        # deploy failure into a production outage. See #79 review.
+        if: steps.check_secrets.outputs.skip != 'true' && success()
         run: |
           # Migrate 100% of traffic to the just-deployed revision.
           # Idempotent — when traffic is already on latest, this is a

@@ -1171,9 +1171,10 @@ inject the per-PR Neon branch URL).
     env_vars: |
       ENVIRONMENT=production
       DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL }}
-# (Production traffic shift to the new revision happens in a separate
-# `gcloud run services update-traffic --to-latest` step — see Pattern #31.)
 ```
+
+Production traffic shift to the new revision happens in a separate
+`gcloud run services update-traffic --to-latest` step — see Pattern #31.
 
 ```yaml
 # .github/workflows/preview-deploy.yml — preview
