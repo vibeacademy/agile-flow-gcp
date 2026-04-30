@@ -1,10 +1,12 @@
 <!-- FRAMEWORK:START -->
 # Agile Flow (GCP Edition)
 
-[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE) [![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](.agile-flow-version) [![Use this template](https://img.shields.io/badge/Use_this-template-2ea44f)](https://github.com/vibeacademy/agile-flow-gcp/generate)
+[![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-blue.svg)](LICENSE) [![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](.agile-flow-version) [![Use this template](https://img.shields.io/badge/Use_this-template-2ea44f)](https://github.com/vibeacademy/agile-flow-gcp/generate) [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vibeacademy/agile-flow-gcp)
 
 A Claude Code project template that bootstraps a complete agile development workflow with specialized AI agents, **configured for Google Cloud Platform**.
 
+> **New here?** Click the **Open in GitHub Codespaces** badge above to spin up a preconfigured Linux container with Python, Node, `gh`, and `gcloud` already installed and `AGILE_FLOW_SOLO_MODE` already set. The Codespace path is the recommended setup for workshops, tutorials, and first-time evaluation. See [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) for the full walkthrough.
+>
 > **Not on GCP?** This is the GCP-specific fork. The upstream [vibeacademy/agile-flow](https://github.com/vibeacademy/agile-flow) ships with Render + Supabase as the default and supports Vercel, Cloudflare, Railway, and Fly.io. Use that one if you're deploying anywhere other than GCP.
 
 [![Watch the video](https://img.youtube.com/vi/rkHxmnsyTiM/maxresdefault.jpg)](https://youtu.be/rkHxmnsyTiM)

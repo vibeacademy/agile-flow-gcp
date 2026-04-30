@@ -185,10 +185,17 @@ assert_contains "AGILE_FLOW_SOLO_MODE" "$T1/sandbox-home/.zshrc" "AGILE_FLOW_SOL
 assert_contains "Activated pre-push hook" "$T1/run.log" "hook activated on first run"
 assert_not_contains "auth refresh" "$T1/gh.log" "no gh auth refresh on happy path"
 
-# ── Test 2: missing scopes → refresh runs ────────────────────────────
+# ── Test 2: missing scopes (non-interactive context) → WARN+skip ─────
+# Since #97: the script detects non-interactive contexts (no TTY on
+# stdin, like Codespace postCreateCommand or this test harness) and
+# WARNs about missing scopes instead of calling `gh auth refresh`
+# (which would hang on browser OAuth). The test harness's `bash -c`
+# invocation IS a non-interactive context, so this test exercises
+# that path. The interactive path (call refresh) is verified by
+# manual runs from a developer's terminal.
 
 echo ""
-echo "Test 2: missing scopes → refresh runs"
+echo "Test 2: missing scopes in non-interactive context → WARN+skip refresh"
 
 T2=$(STUB_INITIAL_ACCOUNT=alice new_sandbox)
 make_gh_stub "$T2"
@@ -202,13 +209,34 @@ ec=$?
 set -e
 
 assert_eq "0" "$ec" "exit 0"
+assert_contains "Non-interactive context detected" "$T2/run.log" "detects no-TTY context"
 assert_contains "Missing scopes: project read:project" "$T2/run.log" "names missing scopes"
-assert_contains "auth refresh -h github.com" "$T2/gh.log" "calls gh auth refresh"
+assert_contains "Skipping refresh" "$T2/run.log" "explicitly skips the interactive call"
+assert_contains "Run manually after this script finishes" "$T2/run.log" "tells user how to fix"
+# Critical: gh auth refresh must NOT have been called (would hang in real Codespace)
+if ! grep -q "auth refresh" "$T2/gh.log"; then
+    echo -e "  ${GREEN}OK${NC} did NOT call gh auth refresh in non-interactive context"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} script called gh auth refresh despite non-interactive context (would hang in Codespace!)"
+    cat "$T2/gh.log"
+    FAIL=$((FAIL + 1))
+fi
 
-# ── Test 3: refresh flips active account → script restores it ────────
+# ── Test 3: refresh-flip recovery (interactive path, deferred) ───────
+# This test previously verified that an interactive `gh auth refresh`
+# that flips the active account triggers a restore via `gh auth
+# switch`. Since #97, the test harness can't reach that code path
+# (it always runs non-interactive). The flip-recovery logic is
+# unchanged from #83; manual verification on a developer's terminal
+# is the path to exercise it.
+#
+# In place of the unreachable assertion, we verify that the
+# non-interactive context does NOT attempt an auth switch (the flip
+# can't happen if refresh wasn't called).
 
 echo ""
-echo "Test 3: refresh flips active account → restored"
+echo "Test 3: non-interactive context skips both refresh and switch"
 
 T3=$(STUB_INITIAL_ACCOUNT=alice new_sandbox)
 make_gh_stub "$T3"
@@ -223,9 +251,22 @@ ec=$?
 set -e
 
 assert_eq "0" "$ec" "exit 0"
-assert_contains "flipped active account from 'alice' to 'va-worker'" "$T3/run.log" "detects flip"
-assert_contains "Restored active account to 'alice'" "$T3/run.log" "restores via gh auth switch"
-assert_contains "auth switch --user alice" "$T3/gh.log" "calls gh auth switch with original user"
+if ! grep -q "auth refresh\|auth switch" "$T3/gh.log"; then
+    echo -e "  ${GREEN}OK${NC} no gh auth refresh or switch in non-interactive context"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} script attempted refresh/switch despite non-interactive context"
+    cat "$T3/gh.log"
+    FAIL=$((FAIL + 1))
+fi
+# The flip-detection logic should not have fired (refresh was skipped)
+if ! grep -q "flipped active account" "$T3/run.log"; then
+    echo -e "  ${GREEN}OK${NC} flip-detection did NOT fire (refresh was skipped)"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} flip detection fired but refresh should have been skipped"
+    FAIL=$((FAIL + 1))
+fi
 
 # ── Test 4: token env var present → warning surfaces ─────────────────
 
@@ -305,10 +346,17 @@ set -e
 assert_eq "1" "$ec" "exit 1 when not in repo root"
 assert_contains "Not in a git repo" "$T6/run.log" "names the issue"
 
-# ── Test 7: no admin access → fails fast ─────────────────────────────
+# ── Test 7: no admin access → WARN, continue ────────────────────────
+# Since #97: admin-verification was downgraded from `exit 1` to a
+# WARN. Admin is a signal, not a gatekeeper — the bootstrap's other
+# outputs (env var, hook activation) remain valuable when admin is
+# missing, and downstream scripts will surface their own clear errors
+# when admin is actually needed. Critically, this also unblocks
+# Codespace `postCreateCommand` for users who open a Codespace from
+# the upstream repo before forking.
 
 echo ""
-echo "Test 7: no admin access on origin remote → fail fast"
+echo "Test 7: no admin access on origin remote → WARN+continue (not exit)"
 
 T7=$(STUB_INITIAL_ACCOUNT=alice new_sandbox)
 make_gh_stub "$T7"
@@ -321,8 +369,9 @@ run_script "$T7" \
 ec=$?
 set -e
 
-assert_eq "1" "$ec" "exit 1 on no admin"
-assert_contains "does NOT have admin access" "$T7/run.log" "explains why"
+assert_eq "0" "$ec" "exit 0 — admin missing is a WARN, not a fatal"
+assert_contains "does NOT have admin access" "$T7/run.log" "WARN message still emitted"
+assert_contains "Solo mode is configured" "$T7/run.log" "script proceeds to completion despite missing admin"
 
 # ── Test 8: no active gh account → fail fast ─────────────────────────
 

@@ -51,7 +51,38 @@ Click **Create repository**.
 **You should see:** Your own repository at
 `https://github.com/your-name/my-app`.
 
-Now clone it locally:
+You now have two paths to set up your dev environment. **Pick one.**
+
+### Path A: GitHub Codespace (recommended)
+
+A Codespace is a preconfigured Linux container running in the cloud.
+It eliminates the entire "make my laptop work" surface — Python, Node,
+`gh`, `gcloud`, and the `AGILE_FLOW_SOLO_MODE` env var are all set up
+for you, identically across all attendees.
+
+1. On your repo's GitHub page, click **Code → Codespaces → Create
+   codespace on `main`** (or click the **Open in GitHub Codespaces**
+   badge in the README).
+2. Wait ~60 seconds for the container to provision.
+3. Run `gcloud auth login` in the integrated terminal to authenticate
+   with GCP (browser OAuth flow).
+4. Skip to **Step 2: Set Up GitHub Access** below — except gh is
+   already authenticated, so you can skip Step 2 entirely.
+
+The container runs `scripts/setup-solo-mode.sh` automatically as
+`postCreateCommand`, so the pre-push hook is already active and your
+gh scopes are already verified.
+
+> **Workshop note for facilitators:** Codespaces is per-attendee
+> billing on a 2-core machine — roughly $15-25 of compute per cohort
+> for a 2-day workshop. See `docs/PLATFORM-GUIDE.md` "Codespace cost
+> estimate" for current numbers.
+>
+> **Closed-network attendees:** if your corporate firewall blocks
+> `*.github.dev` or VS Code Server, Codespaces won't work — use Path B
+> below instead.
+
+### Path B: Local clone (fallback)
 
 ```bash
 cd ~/projects   # or wherever you keep repos
@@ -61,8 +92,8 @@ bash scripts/setup-solo-mode.sh
 npm install
 ```
 
-`scripts/setup-solo-mode.sh` is the recommended bootstrap for solo mode
-(one personal account plays all roles — workshop attendees, individual
+`scripts/setup-solo-mode.sh` is the bootstrap for solo mode (one
+personal account plays all roles — workshop attendees, individual
 learners, framework evaluators). It activates the pre-push quality
 gate, persists `AGILE_FLOW_SOLO_MODE=true` to your shell rc, audits
 stale `GITHUB_PERSONAL_ACCESS_TOKEN*` env vars (which silently override
