@@ -75,7 +75,14 @@ jobs:
           branch_name: pr-${{ env.PR_NUMBER }}
           # Workshop forks set NEON_PARENT_BRANCH to the attendee's branch name
           # (e.g. "alice") so per-PR previews inherit that attendee's schema.
-          # Non-workshop forks leave it unset and fall back to "main".
+          # Non-workshop forks leave it unset and fall back to the literal
+          # string "main" — which assumes the Neon project's default branch
+          # is named "main". Projects that were created with a different
+          # default name (e.g. "production") MUST set NEON_PARENT_BRANCH
+          # explicitly per fork; the literal-string fallback below does not
+          # query the project's actual default and will silently fail or
+          # create a sibling. See docs/PLATFORM-GUIDE.md "Neon Branch Model"
+          # for the canonical naming requirements (#90).
           # `||` is fine inside `with:` — only `if:` rejects `secrets.*`.
           parent: ${{ secrets.NEON_PARENT_BRANCH || 'main' }}
           username: ${{ vars.NEON_DB_USER || 'neondb_owner' }}

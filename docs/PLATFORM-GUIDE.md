@@ -629,6 +629,109 @@ gitignored. They contain participant emails — never commit either.
 
 ---
 
+## Neon Branch Model
+
+Neon branches are how the framework gives each attendee an isolated
+database without provisioning a separate Neon project per person. This
+section documents the framework's branch types, the workshop
+multi-tenancy model, and the collision behavior — read it once before
+running a cohort, especially if you're reusing a Neon project across
+cohorts.
+
+### Branch namespace
+
+Neon branches are unique within a project. Across projects, names can
+repeat freely. The framework uses one Neon project per cohort by
+default.
+
+### Branch types
+
+The framework creates and consumes three categories of Neon branch:
+
+| Type | Owner | Lifetime | Created by |
+|---|---|---|---|
+| `main` | Project default | Permanent | Neon (at project creation) |
+| `<roster-handle>` | One per roster row | Long-lived | `provision-gcp-project.sh` Step 5.7 |
+| `pr-{N}` | One per open PR | Short-lived | `preview-deploy.yml` |
+
+- **`main`** — the project's default branch. The production app's
+  pooled connection points here. **Must be named `main` literally.**
+  `preview-deploy.yml:80` falls back to the literal string `'main'`
+  when `NEON_PARENT_BRANCH` is unset; if your Neon project's default
+  branch is named differently (`production`, etc.), set
+  `NEON_PARENT_BRANCH` explicitly per fork or expect the parent
+  fallback to silently fail.
+- **`<roster-handle>`** — long-lived seed branches, one per roster row.
+  Branch name defaults to the CSV's `handle` column. Created once
+  during onboarding by Step 5.7 of `provision-gcp-project.sh`. Never
+  auto-deleted — these survive across cohorts unless a facilitator
+  manually removes them.
+- **`pr-{N}`** — short-lived. Auto-created by `preview-deploy.yml`
+  on PR open, auto-deleted by `preview-cleanup.yml` on PR close. PR
+  numbers are unique-per-repo, so cross-fork preview branches do
+  not collide.
+
+### What `NEON_PARENT_BRANCH` does
+
+Determines what schema and seed data each PR's preview branch
+inherits. The default `main` means "inherit from production schema,
+no seed data." Setting it to an attendee's roster handle means
+"inherit from my seeded dev data." `provision-gcp-project.sh` Step 7
+auto-pushes this as a GitHub Actions secret on the attendee's fork.
+
+### Workshop multi-tenancy model
+
+Facilitators typically provision **one** shared Neon project per
+cohort (cost-efficient). Three implications:
+
+1. **All attendees see each other's branches in the Neon console.**
+   This is normal; not a privacy issue (branch names are roster
+   handles, not anything sensitive).
+2. **Branch deletion is project-wide.** If `preview-cleanup.yml`
+   deletes `pr-3`, it's gone for the entire project, not just the
+   triggering fork. PR-number uniqueness across forks prevents this
+   from causing real harm in normal use, but be aware.
+3. **What you should expect to see in the console.** Given a roster
+   of N attendees, expect: 1× `main` (the default), N× `<handle>`
+   (one per row), 0+× `pr-{N}` (one per open PR across all forks).
+   Anything else is checkable against `roster.csv` — if a console
+   branch isn't in the roster, it's a leftover.
+
+### Collision behavior (since #90)
+
+Two roster rows with the same handle, OR a single row whose handle
+matches a branch left over from a prior cohort, results in the
+provisioner **failing fast** with an actionable message:
+
+```text
+ERROR: Neon branch 'alice' already exists in project 'dark-grass-...'.
+  This may mean: another roster row already used this handle,
+  OR a prior cohort left a branch with this name.
+  Choose a different handle, OR set NEON_FORCE_SHARED_PARENT=true
+  if you intentionally want to share the parent branch (paired
+  collaboration, or re-running the same cohort).
+```
+
+To intentionally share a parent (paired collaboration, or
+re-running an existing cohort against the still-populated Neon
+project), set `NEON_FORCE_SHARED_PARENT=true` in the environment
+when running the provisioner. The wrapper accepts
+`--force-shared-parent` and propagates it.
+
+```bash
+# Default: fail fast on existing branch
+bash scripts/provision-workshop-roster.sh roster.csv
+
+# Intentional shared parent
+bash scripts/provision-workshop-roster.sh roster.csv --force-shared-parent
+```
+
+The previous behavior (silent reuse on 409) is preserved when the
+flag is set, so existing automation with intentional collisions
+keeps working — just turn the flag on explicitly.
+
+---
+
 ## Daily Operations
 
 ### Viewing Logs

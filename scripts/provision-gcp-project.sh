@@ -654,7 +654,29 @@ sys.exit('no default branch found in project response')
     branch_id="$(python3 -c "import json,sys; print(json.load(open('$create_response_file'))['branch']['id'])")"
     echo "[neon] branch created (id=$branch_id)"
   elif [[ "$http_code" == "409" ]]; then
-    echo "[neon] branch '$NEON_BRANCH_NAME' already exists; reusing"
+    # 409: a branch with this name already exists in the project.
+    #
+    # Default behavior (since #90): fail loud. Two roster rows with
+    # the same handle, OR a roster row whose handle matches a branch
+    # left over from a prior cohort, would otherwise silently mount
+    # this attendee's database-url Secret Manager secret to the
+    # OTHER attendee's Neon branch — invisible cross-contamination.
+    #
+    # NEON_FORCE_SHARED_PARENT=true preserves the original silent-reuse
+    # behavior for legitimate cases: paired attendees collaborating on
+    # the same dataset, or re-running the same cohort against an
+    # already-populated Neon project. Set explicitly; never default on.
+    if [[ "${NEON_FORCE_SHARED_PARENT:-false}" != "true" ]]; then
+      echo "ERROR: Neon branch '$NEON_BRANCH_NAME' already exists in project '$NEON_PROJECT_ID'." >&2
+      echo "  This may mean: another roster row already used this handle," >&2
+      echo "  OR a prior cohort left a branch with this name." >&2
+      echo "  Choose a different handle, OR set NEON_FORCE_SHARED_PARENT=true" >&2
+      echo "  if you intentionally want to share the parent branch (paired" >&2
+      echo "  collaboration, or re-running the same cohort)." >&2
+      rm -f "$create_response_file"
+      exit 1
+    fi
+    echo "[neon] branch '$NEON_BRANCH_NAME' already exists; reusing per NEON_FORCE_SHARED_PARENT=true"
     # Look up the existing branch's ID by name.
     branch_id="$(echo "$branches_json" | python3 -c "
 import json, sys

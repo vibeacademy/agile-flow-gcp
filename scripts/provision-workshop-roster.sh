@@ -7,9 +7,20 @@
 #
 # Usage:
 #   BILLING_ACCOUNT_ID=XXX-XXXX-XXXX ./scripts/provision-workshop-roster.sh roster.csv
+#   BILLING_ACCOUNT_ID=XXX ./scripts/provision-workshop-roster.sh roster.csv --force-shared-parent
 #
 # Required environment variables:
 #   BILLING_ACCOUNT_ID   The GCP billing account to attach each project to
+#
+# Optional flags:
+#   --force-shared-parent    Pass NEON_FORCE_SHARED_PARENT=true to the inner
+#                            script. By default, an existing Neon branch with
+#                            a roster handle's name causes the inner script
+#                            to fail with an actionable error (#90 — prevents
+#                            silent cross-contamination). Set this flag to
+#                            opt back into the previous silent-reuse behavior
+#                            for paired collaboration or re-running an existing
+#                            cohort against a still-populated Neon project.
 #
 # Optional environment variables:
 #   GCP_REGION           (default: us-central1) — passed through to inner script
@@ -17,6 +28,8 @@
 #   PROVISION_SCRIPT     (default: scripts/provision-gcp-project.sh) — for tests
 #   NEON_API_KEY         optional; forwarded to inner script for branch creation
 #   NEON_PROJECT_ID      optional; forwarded to inner script for branch creation
+#   NEON_FORCE_SHARED_PARENT  same effect as --force-shared-parent above; the
+#                            flag sets this env var on the inner script
 #   BUDGET_CAP_USD       optional; forwarded to inner script for Step 5.6
 #                        (per-project billing budget). Default for workshop
 #                        usage is 25.
@@ -65,16 +78,42 @@ OUTPUT_CSV="${OUTPUT_CSV:-roster-output.csv}"
 
 # ── Argument parsing ─────────────────────────────────────────────────────
 
-if [[ $# -ne 1 ]]; then
+ROSTER_CSV=""
+FORCE_SHARED_PARENT="${NEON_FORCE_SHARED_PARENT:-false}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force-shared-parent)
+      FORCE_SHARED_PARENT=true
+      shift
+      ;;
+    -h|--help)
+      sed -n '1,60p' "$0"
+      exit 0
+      ;;
+    --*)
+      echo "ERROR: unknown flag: $1" >&2
+      exit 2
+      ;;
+    *)
+      if [[ -n "$ROSTER_CSV" ]]; then
+        echo "ERROR: multiple positional arguments; expected exactly one (the roster CSV)" >&2
+        exit 2
+      fi
+      ROSTER_CSV="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$ROSTER_CSV" ]]; then
   cat >&2 <<EOF
-Usage: BILLING_ACCOUNT_ID=XXX ./scripts/provision-workshop-roster.sh <roster.csv>
+Usage: BILLING_ACCOUNT_ID=XXX ./scripts/provision-workshop-roster.sh <roster.csv> [--force-shared-parent]
 
 See header of $0 for full documentation.
 EOF
   exit 2
 fi
-
-ROSTER_CSV="$1"
 
 if [[ ! -f "$ROSTER_CSV" ]]; then
   echo "ERROR: roster file not found: $ROSTER_CSV" >&2
@@ -229,6 +268,7 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   NEON_BRANCH_NAME="$neon_branch" \
   NEON_API_KEY="${NEON_API_KEY:-}" \
   NEON_PROJECT_ID="${NEON_PROJECT_ID:-}" \
+  NEON_FORCE_SHARED_PARENT="$FORCE_SHARED_PARENT" \
   BUDGET_CAP_USD="${BUDGET_CAP_USD:-}" \
     "$PROVISION_SCRIPT" --create-project
 
