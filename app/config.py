@@ -6,8 +6,9 @@ or Cloud Run Secret Manager mounts.
 """
 
 from functools import lru_cache
+from typing import Self
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +33,30 @@ class Settings(BaseSettings):
         if v.startswith("postgresql://"):
             return v.replace("postgresql://", "postgresql+psycopg://", 1)
         return v
+
+    @model_validator(mode="after")
+    def _refuse_sqlite_in_production(self) -> Self:
+        # Defense-in-depth: the dev-default sqlite URL must never reach
+        # a production runtime. If the secret-mounted DATABASE_URL is
+        # missing or the mount didn't override the default, fail at
+        # startup with a clear message rather than 500ing on the first
+        # DB query with `no such table: todo`. See #63 / #71.
+        if self.environment != "production":
+            return self
+        if not self.database_url:
+            raise ValueError(
+                "DATABASE_URL is empty in production. "
+                "Check that the Secret Manager secret 'database-url' is "
+                "mounted in deploy.yml and the Cloud Run service has "
+                "secretAccessor on it."
+            )
+        if self.database_url.startswith("sqlite"):
+            raise ValueError(
+                f"DATABASE_URL is SQLite in production: {self.database_url!r}. "
+                "Production must use Postgres. Likely cause: the secret-mounted "
+                "DATABASE_URL env var didn't override the dev default."
+            )
+        return self
 
 
 @lru_cache
