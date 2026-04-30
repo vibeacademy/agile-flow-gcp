@@ -78,6 +78,46 @@ jobs:
       - name: Verify agent restrictions (protocol and docs)
         run: ./scripts/verify-agent-restrictions.sh --test protocol && ./scripts/verify-agent-restrictions.sh --test docs
 
+  actionlint:
+    # Static checker for GitHub Actions YAML. Catches workflow-level
+    # bugs that bash shellcheck and project tests can't reach:
+    #   - `secrets.*` referenced inside `if:` expressions (#29 class)
+    #   - Unknown action inputs e.g. dropped `service_account` arg
+    #     (#32 class)
+    #   - Malformed expressions, undefined contexts
+    #
+    # Filed as #37 after three workflow YAML bugs reached `main` in
+    # earlier sessions (#27, #29, #32). actionlint validates workflow
+    # structure and recognized action inputs; it does NOT shellcheck
+    # the contents of free-form strings (e.g. gcloud `flags:` values).
+    # Bugs in that class — like #76 (`--traffic=latest=100` rejected
+    # by gcloud at runtime) — need a separate guard, e.g. an end-to-end
+    # deploy in CI or a curated allowlist of known gcloud flags.
+    #
+    # Job runs on every PR (not path-filtered): actionlint is <5s and
+    # the overhead vs. introducing a paths-filter dependency is
+    # negligible. Suppression rules in .github/actionlint.yaml keep
+    # the lint posture aligned with scripts/validation/validate-scripts.sh.
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install actionlint
+        id: get_actionlint
+        # Pin to a specific version so workflow lint behavior doesn't
+        # change silently across runs. The download-and-exec pattern
+        # is the rhysd-recommended integration; avoids depending on a
+        # third-party action wrapper.
+        run: |
+          bash <(curl -fsS https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+          echo "executable=${{ github.workspace }}/actionlint" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Run actionlint
+        run: ${{ steps.get_actionlint.outputs.executable }} -color -config-file .github/actionlint.yaml
+        shell: bash
+
   python:
     name: python
     runs-on: ubuntu-latest
