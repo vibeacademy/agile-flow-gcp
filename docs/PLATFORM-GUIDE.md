@@ -549,6 +549,42 @@ doesn't need a workshop-style cap.
 > radius (≤8 projects × $25 = ~$200 worst case), facilitator monitoring
 > is sufficient.
 
+### Codespace cost estimate
+
+Workshop attendees who use the recommended GitHub Codespace path (see
+`README.md` and `docs/GETTING-STARTED.md`) accumulate per-attendee
+compute charges separate from the GCP budget above. The
+`.devcontainer/devcontainer.json` defaults to the cheapest machine
+type (`hostRequirements: cpus: 2, memory: 4gb`) to keep the per-cohort
+cost predictable.
+
+Reference numbers (subject to change at GitHub's pricing page —
+verify before each cohort):
+
+| Variable | Value (2026-04) |
+|---|---|
+| 2-core machine rate | ~$0.18/hour |
+| Free tier (per personal account) | 120 core-hours/month |
+| Cohort size | 8 attendees |
+| Workshop duration | 2 days × 4 active hours/day |
+
+For a typical 8-attendee, 2-day workshop with 4 active Codespace hours
+per attendee per day, total compute ≈ 8 × 2 × 4 × 2 cores ≈ 128
+core-hours, mostly within the per-attendee free tier. Even with all
+attendees billing past free tier, worst-case compute is ~$15-25 per
+cohort.
+
+Codespaces hibernate after 30 minutes of inactivity by default, so
+overnight or long-break costs are zero. To keep a Codespace running
+across a longer timeline, see GitHub's "Codespaces lifecycle" docs
+for the `keepalive` option.
+
+> **Closed-network attendees.** If your cohort includes participants
+> behind corporate firewalls that block `*.github.dev` or VS Code
+> Server, those attendees use the local-clone fallback path in
+> `docs/GETTING-STARTED.md` Path B. The framework supports both;
+> Codespaces is the recommended path, not the only path.
+
 ### Auto-pushed GitHub secrets (Step 7)
 
 When `GITHUB_REPOSITORY=<owner>/<repo>` is set and `gh` is on PATH and
