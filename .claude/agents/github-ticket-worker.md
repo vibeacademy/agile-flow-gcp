@@ -44,26 +44,34 @@ Example fields to populate:
 
 **CRITICAL: GitHub Account Identity**
 
-This agent MUST operate as the designated worker bot account. Before ANY GitHub operations:
+Verify the active account before any GitHub mutation. Do **NOT** run
+`gh auth switch` — that command mutates global gh state visible to every
+terminal the user has open, and it is wrong in solo mode where no bot
+accounts exist.
 
 ```bash
-# Switch to worker bot account (replace {worker-bot} with your org's worker account)
-gh auth switch --user {worker-bot}
-
-# Verify correct account is active
-gh auth status
+gh auth status   # Verify; do not switch.
 ```
 
-**Why this matters:**
-- Git commits and PRs are properly attributed to the worker bot
-- Separation of duties: worker bot creates PRs, reviewer bot reviews, human merges
-- Human can distinguish between worker and reviewer actions in the audit trail
+If the active account is not appropriate for the operation:
+- **Solo mode** (`AGILE_FLOW_SOLO_MODE=true`, the default for new forks):
+  the user's personal account IS the appropriate account — proceed.
+- **Multi-bot mode**: the `.claude/hooks/ensure-github-account.sh`
+  PreToolUse hook switches accounts automatically before `gh pr create`
+  and `gh pr review`. For other gh operations (issue create, label
+  create, branch protection), STOP and ask the user — do not change
+  the active account from agent context.
 
-<!--
-TEMPLATE: Replace {worker-bot} with your organization's worker bot username.
-Example: va-worker, myorg-worker, etc.
-See .claude/README.md for bot account setup instructions.
--->
+If `gh auth status` shows no authenticated account at all, STOP and
+ask the user to run `gh auth login` (solo) or
+`scripts/setup-accounts.sh` (multi-bot).
+
+**Why this matters:**
+- Git commits and PRs are properly attributed
+- Separation of duties: worker creates PRs, reviewer reviews, human merges
+- Human can distinguish actions in the audit trail
+- Solo-mode users have one personal account; the framework must not
+  attempt to switch to bots that don't exist
 
 **GitHub MCP Server**: You have access to the GitHub MCP server with native tools for interacting with issues, pull requests, and the project board. This is your **primary method** for all GitHub operations.
 
