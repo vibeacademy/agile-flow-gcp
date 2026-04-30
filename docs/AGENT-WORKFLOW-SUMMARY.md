@@ -199,7 +199,11 @@ When in doubt, agents:
 
 **Steps**:
 
-1. Agent switches to worker bot account
+1. Agent verifies active gh account (`gh auth status`); does NOT
+   switch (#82). In multi-bot mode, the
+   `.claude/hooks/ensure-github-account.sh` hook auto-switches to
+   the worker account before `gh pr create`. In solo mode, the
+   user's personal account is the active account throughout.
 2. Agent picks top ticket from Ready column
 3. Agent moves ticket to In Progress
 4. Agent creates feature branch
@@ -216,7 +220,10 @@ When in doubt, agents:
 
 **Steps**:
 
-1. Agent switches to reviewer bot account
+1. Agent verifies active gh account (`gh auth status`); does NOT
+   switch (#82). In multi-bot mode, the hook auto-switches to the
+   reviewer account before `gh pr review`. In solo mode, the user's
+   personal account posts the review.
 2. Agent reads PR and diffs
 3. Agent analyzes code quality
 4. Agent checks tests and coverage
@@ -235,7 +242,9 @@ When in doubt, agents:
 2. Human performs final review
 3. Human approves PR
 4. Human merges PR
-5. Human moves ticket to Done
+5. Project board's "Item closed → Status: Done" workflow auto-moves
+   the ticket (#86); in projects without that workflow enabled, the
+   human moves the ticket manually
 
 **Outcome**: Code merged, ticket complete
 
@@ -508,7 +517,8 @@ for setup instructions and the `.mcp.json` configuration.
 **What Happens**:
 
 1. Launches github-ticket-worker agent
-2. Agent switches to worker bot account
+2. Agent verifies active gh account (does NOT switch — multi-bot
+   switching is delegated to the PreToolUse hook for `gh pr create`)
 3. Finds top ticket in Ready column
 4. Creates feature branch
 5. Implements solution
@@ -524,7 +534,8 @@ for setup instructions and the `.mcp.json` configuration.
 **What Happens**:
 
 1. Launches pr-reviewer agent
-2. Agent switches to reviewer bot account
+2. Agent verifies active gh account (does NOT switch — multi-bot
+   switching is delegated to the PreToolUse hook for `gh pr review`)
 3. Finds PRs awaiting review
 4. Analyzes code quality
 5. Posts detailed review

@@ -362,6 +362,93 @@ If the workflow succeeds but the container fails its health check with
 
 ---
 
+## Account Model
+
+This template supports two modes for the GitHub identities that
+operate the agentic workflow. **Solo mode is the default** for new
+forks; multi-bot mode is the production opt-in.
+
+### Solo mode (default)
+
+One personal GitHub account plays all roles — worker (creates PRs),
+reviewer (posts review comments), human merger. Recommended for:
+
+- Workshops and tutorials (one attendee, one fork, one identity)
+- Individual learners and framework evaluators
+- Anyone whose org doesn't have provisioned bot accounts
+
+**Bootstrap:**
+
+```bash
+bash scripts/setup-solo-mode.sh
+```
+
+The script persists `AGILE_FLOW_SOLO_MODE=true` to your shell rc,
+audits stale `GITHUB_PERSONAL_ACCESS_TOKEN*` env vars (which
+silently override `gh auth switch`), verifies your gh token has
+`repo + project + workflow + read:project` scopes, activates the
+pre-push hook (`core.hooksPath`), and verifies you have admin
+access on the fork. See `docs/GETTING-STARTED.md` Path B for the
+walkthrough.
+
+In Codespaces, `AGILE_FLOW_SOLO_MODE=true` is set automatically via
+`.devcontainer/devcontainer.json`'s `containerEnv` and the bootstrap
+script runs as `postCreateCommand`. Codespaces is the recommended
+setup path for first-time users; see GETTING-STARTED Path A.
+
+**Agent identity:** the worker and reviewer agents read
+`gh auth status` to verify the active account before any GitHub
+mutation. Neither agent runs `gh auth switch` (that mutates global
+gh state across the user's terminals; #82). The hook
+(`.claude/hooks/ensure-github-account.sh`) short-circuits on
+`AGILE_FLOW_SOLO_MODE=true` and no longer tries to switch accounts.
+
+### Multi-bot mode (production)
+
+Separate worker + reviewer bot accounts plus a human merger.
+Provides separation of duties and an audit trail (worker bot's
+identity on every PR creation; reviewer bot's identity on every
+review). Appropriate for:
+
+- Production teams with provisioned bot accounts
+- Organizations that need a clear paper trail on automated activity
+- Setups where the framework is operated by multiple humans who want
+  to distinguish their actions from agent actions
+
+**Bootstrap:**
+
+```bash
+bash scripts/setup-accounts.sh
+```
+
+Activated by setting `AGILE_FLOW_WORKER_ACCOUNT` (default:
+`va-worker`) and `AGILE_FLOW_REVIEWER_ACCOUNT` (default:
+`va-reviewer`) env vars. The hook auto-switches to the right
+account before `gh pr create` and `gh pr review`. Other gh
+operations (issue create, label create, branch protection) require
+the agent to verify the active account and STOP if wrong — never
+switch from agent context (#82).
+
+### Choosing between them
+
+Choose based on use case, not phase. Workshop attendees stay in solo
+mode for the entire workshop. Production teams adopt multi-bot once
+they have provisioned bot accounts AND a documented PAT-rotation
+schedule — both are real operational costs that solo mode avoids.
+
+The two modes coexist in the framework: **the same agents, hooks,
+and scripts work for both.** Switching modes is an env-var change
+and a re-run of the appropriate bootstrap script; no code is
+duplicated for solo vs multi-bot.
+
+**Trade-off:** solo mode loses the audit-trail benefit of
+bot-account separation — every PR and review is attributed to the
+single personal account. For learning environments and small teams,
+this is fine. For production at scale, multi-bot's clarity is
+worth the setup cost.
+
+---
+
 ## Workshop: Lifecycle (Setup and Teardown)
 
 When running a workshop, the facilitator's mental model is two commands:
@@ -381,39 +468,6 @@ account is OPEN, roster file exists with the expected header, roster
 has data rows) and then hands off to the underlying provisioning logic.
 Pre-flight failures exit 2 with actionable messages — far better than
 discovering a missing auth token mid-loop.
-
-### Solo mode (workshops and tutorials)
-
-Production teams using this template separate "the agent that opens
-PRs" from "the agent that reviews them" by giving each its own GitHub
-bot account (the `va-worker` / `va-reviewer` pair documented in
-`CLAUDE.md`). For a workshop, that adds 10–15 minutes of per-attendee
-setup (PAT distribution, two `gh auth login` calls, hook debugging
-when an account isn't authed) without teaching anything an attendee
-can't learn another way.
-
-**Solo mode** disables the bot-account split: each attendee uses their
-own personal GitHub account for both worker and reviewer roles. The
-agent flow demos cleanly (open → review → merge as one identity),
-errors are unambiguous (every "can't do X" is about the participant,
-not "which bot am I supposed to be?"), and setup goes from ~15
-min/person to ~3 min/person.
-
-**To enable:** the attendee adds one line to `~/.zshrc` (macOS) or
-`~/.bashrc` (Linux):
-
-```bash
-export AGILE_FLOW_SOLO_MODE=true
-```
-
-After restarting Claude Desktop (so the new shell picks up the env),
-the `.claude/hooks/ensure-github-account.sh` hook short-circuits and
-no longer tries to switch accounts. The attendee operates entirely
-under their own `gh auth login` identity.
-
-**Trade-off** — solo mode loses the audit-trail benefit of bot-account
-separation. Use it for learning environments. Production teams should
-leave the env var unset and run with the full bot-account architecture.
 
 ### Roster format
 

@@ -292,7 +292,23 @@ else
     fail "GitHub Auth" "Not authenticated with gh" "Run: gh auth login"
 fi
 
-# AGILE_FLOW_WORKER_ACCOUNT (WARN)
+# Detect mode: solo (default) vs multi-bot. Solo mode is signaled by
+# AGILE_FLOW_SOLO_MODE=true OR by the absence of multi-bot env vars.
+# Multi-bot mode requires both AGILE_FLOW_WORKER_ACCOUNT and
+# AGILE_FLOW_REVIEWER_ACCOUNT to be set. See #87.
+if [ "${AGILE_FLOW_SOLO_MODE:-false}" = "true" ]; then
+    AGILE_FLOW_MODE="solo"
+elif [ -n "${AGILE_FLOW_WORKER_ACCOUNT:-}" ] && [ -n "${AGILE_FLOW_REVIEWER_ACCOUNT:-}" ]; then
+    AGILE_FLOW_MODE="multi-bot"
+else
+    # Neither solo nor fully-configured multi-bot: ambiguous default.
+    # Treat as solo (the framework default since #87) and surface the
+    # missing-env-vars as informational, not warnings.
+    AGILE_FLOW_MODE="solo"
+fi
+pass "GitHub Auth" "Mode: $AGILE_FLOW_MODE"
+
+# AGILE_FLOW_WORKER_ACCOUNT — required for multi-bot, irrelevant for solo
 if [ -n "${AGILE_FLOW_WORKER_ACCOUNT:-}" ]; then
     pass "GitHub Auth" "AGILE_FLOW_WORKER_ACCOUNT set: $AGILE_FLOW_WORKER_ACCOUNT"
 
@@ -306,11 +322,13 @@ if [ -n "${AGILE_FLOW_WORKER_ACCOUNT:-}" ]; then
     else
         warn "GitHub Auth" "Worker account ($AGILE_FLOW_WORKER_ACCOUNT) not in gh keyring" "Run: gh auth login for this account"
     fi
-else
+elif [ "$AGILE_FLOW_MODE" = "multi-bot" ]; then
     warn "GitHub Auth" "AGILE_FLOW_WORKER_ACCOUNT not set" "export AGILE_FLOW_WORKER_ACCOUNT=\"{org}-worker\""
+else
+    skip "GitHub Auth" "AGILE_FLOW_WORKER_ACCOUNT not set" "Not relevant in solo mode"
 fi
 
-# AGILE_FLOW_REVIEWER_ACCOUNT (WARN)
+# AGILE_FLOW_REVIEWER_ACCOUNT — required for multi-bot, irrelevant for solo
 if [ -n "${AGILE_FLOW_REVIEWER_ACCOUNT:-}" ]; then
     pass "GitHub Auth" "AGILE_FLOW_REVIEWER_ACCOUNT set: $AGILE_FLOW_REVIEWER_ACCOUNT"
 
@@ -324,8 +342,10 @@ if [ -n "${AGILE_FLOW_REVIEWER_ACCOUNT:-}" ]; then
     else
         warn "GitHub Auth" "Reviewer account ($AGILE_FLOW_REVIEWER_ACCOUNT) not in gh keyring" "Run: gh auth login for this account"
     fi
-else
+elif [ "$AGILE_FLOW_MODE" = "multi-bot" ]; then
     warn "GitHub Auth" "AGILE_FLOW_REVIEWER_ACCOUNT not set" "export AGILE_FLOW_REVIEWER_ACCOUNT=\"{org}-reviewer\""
+else
+    skip "GitHub Auth" "AGILE_FLOW_REVIEWER_ACCOUNT not set" "Not relevant in solo mode"
 fi
 
 # Final restore — ensure we always end on the original user
