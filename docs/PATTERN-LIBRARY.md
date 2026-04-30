@@ -18,6 +18,8 @@
 6. [Cloud Run: Scale-to-Zero Cold Starts](#6-cloud-run-scale-to-zero-cold-starts)
 7. [Cloud Run: Artifact Registry Path, Not gcr.io](#7-cloud-run-artifact-registry-path-not-gcrio)
 8. [Cloud Run: Revision Tagging for PR Previews](#8-cloud-run-revision-tagging-for-pr-previews)
+31. [Cloud Run: Traffic Doesn't Migrate to New Revisions by Default](#31-cloud-run-traffic-doesnt-migrate-to-new-revisions-by-default)
+32. [Cloud Run: Plain Env Var and Secret Mount on the Same Key Collide](#32-cloud-run-plain-env-var-and-secret-mount-on-the-same-key-collide)
 
 ### Neon
 
@@ -1056,3 +1058,107 @@ not need to apply it manually for new workshop projects. The runbook's
 T-3 days section retains a recovery snippet for projects provisioned
 before #19, or for cases where the override needs to be re-applied
 out-of-band.
+
+---
+
+## 31. Cloud Run: Traffic Doesn't Migrate to New Revisions by Default
+
+**Gotcha:** When a Cloud Run service is pre-created with a placeholder
+revision (e.g. by a provision script seeding `cloudrun/container/hello`)
+and 100% traffic is pinned to that revision, subsequent
+`gcloud run deploy` and `google-github-actions/deploy-cloudrun@v2`
+calls **do not migrate traffic** away from the placeholder. New
+revisions are created and report Ready, but receive 0% of traffic.
+The service URL serves the placeholder indefinitely; CI reports green;
+the symptom is opaque (wrong content, no error). Nobody notices until
+they hit the URL.
+
+This is the inverse of the usual Cloud Run mental model. A naked
+`gcloud run deploy` with no traffic flags routes 100% to the new
+revision. But once *any* explicit traffic split exists on the service,
+deploys preserve that split — even when the latest revision is
+healthier than what's currently serving.
+
+**Pattern:** When a deploy is meant to shift production to the new
+revision, pass `--traffic=latest=100` (or run
+`gcloud run services update-traffic --to-latest` post-deploy):
+
+```yaml
+# In .github/workflows/deploy.yml
+- name: Deploy to Cloud Run
+  uses: google-github-actions/deploy-cloudrun@v2
+  with:
+    service: agile-flow-app
+    image: ${{ env.IMAGE }}
+    region: us-central1
+    flags: --traffic=latest=100
+```
+
+```bash
+# Or post-deploy, equivalent end state:
+gcloud run services update-traffic agile-flow-app \
+  --region=us-central1 \
+  --to-latest
+```
+
+Preview revisions intentionally remain `--no-traffic --tag=pr-N` and
+are unaffected — the flag only applies to the production deploy job.
+
+Surfaced in the 2026-04-29 dry-run on a fresh fork: the placeholder
+service from Step 5.8 of the provision script absorbed 100% of
+traffic; six green CI runs later, the URL was still serving "Hello
+from Cloud Run!". Fixed in #66.
+
+---
+
+## 32. Cloud Run: Plain Env Var and Secret Mount on the Same Key Collide
+
+**Gotcha:** Cloud Run treats plain environment variables and Secret
+Manager mounts as *different types* on the same key. Once a service
+has `DATABASE_URL` set as a plain env var, you can't switch it to a
+secret mount without an explicit clear step — gcloud refuses with:
+
+```text
+ERROR: (gcloud.run.deploy) Cannot update environment variable
+[DATABASE_URL] to the given type because it has already been set with
+a different type.
+```
+
+The error is opaque: nothing in the message hints that this is a
+state-drift issue rather than a permission, syntax, or quota problem.
+The natural debugging path (re-check IAM, re-check secret existence,
+re-check region) goes nowhere.
+
+The same trap fires in reverse — moving from a secret mount to a
+plain env var also fails until the secret mount is explicitly removed.
+
+**Pattern:** Always pair `--remove-env-vars=KEY` with `--set-secrets`
+(or `secrets:` in `deploy-cloudrun@v2`) when the deploy step expects
+the value to come from Secret Manager. `--remove-env-vars` is
+idempotent — no-op when the var doesn't exist — so it's safe to
+include unconditionally.
+
+```yaml
+- name: Deploy to Cloud Run
+  uses: google-github-actions/deploy-cloudrun@v2
+  with:
+    service: agile-flow-app
+    image: ${{ env.IMAGE }}
+    region: us-central1
+    flags: --remove-env-vars=DATABASE_URL
+    secrets: |
+      DATABASE_URL=database-url:latest
+```
+
+```bash
+# Equivalent direct gcloud:
+gcloud run services update agile-flow-app \
+  --region=us-central1 \
+  --remove-env-vars=DATABASE_URL \
+  --set-secrets=DATABASE_URL=database-url:latest
+```
+
+Surfaced in the 2026-04-29 dry-run when the production deploy
+inherited `DATABASE_URL` as a plain env var (set by a prior preview
+deploy that hadn't yet been replaced with the Secret Manager mount).
+Fixed in #68.
