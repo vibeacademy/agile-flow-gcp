@@ -7,7 +7,7 @@
 2. **All tests must pass before pushing.** Never use `git push --no-verify`. Fix the failing checks instead.
 3. **Conventional commits required.** Format: `<type>(<scope>): <subject>`. See `.claude/skills/commit.md` for types and scopes.
 4. **Only humans merge PRs.** Agents create PRs and review them. Humans approve and merge.
-5. **Switch accounts before PR operations.** The `.claude/hooks/ensure-github-account.sh` hook handles this automatically. Set `AGILE_FLOW_SOLO_MODE=true` to skip — recommended for workshops and tutorials where one person plays both worker and reviewer roles.
+5. **Solo mode is the default.** A fork's gh + git operations use the user's personal account. Set `AGILE_FLOW_WORKER_ACCOUNT` and `AGILE_FLOW_REVIEWER_ACCOUNT` env vars to opt into multi-bot mode (separation of duties, appropriate for production teams with provisioned bot accounts). The `.claude/hooks/ensure-github-account.sh` hook handles account switching for multi-bot mode automatically.
 6. **No emojis in ASCII tables.** They break column alignment. Emojis OK in prose and headings.
 7. **One canonical location per fact.** Don't duplicate content across CLAUDE.md, agent files, and skills.
 8. **Never hardcode application URLs.** Use `window.location.origin` (client-side) or request headers (server-side) so code works in both production and PR preview environments.
@@ -61,21 +61,40 @@ errors, typos): skip ticket ceremony but still use branch + PR.
 | Quality Engineer | Validation | Test plans, reports | Implementation |
 | System Architect | Design | Architecture, patterns | Implementation |
 
-### Account Switching
+### Account model
 
-The `.claude/hooks/ensure-github-account.sh` hook auto-switches accounts:
+This template supports two modes. **Solo mode is the default** for new
+forks; multi-bot mode is the production opt-in.
 
-- **Worker** (`AGILE_FLOW_WORKER_ACCOUNT`, default: `va-worker`) — PR creation
-- **Reviewer** (`AGILE_FLOW_REVIEWER_ACCOUNT`, default: `va-reviewer`) — PR reviews
+**Solo mode (default)** — one personal account plays all roles
+(worker, reviewer, human merger). Recommended for workshops, tutorials,
+individual learners, and framework evaluation. Bootstrap with
+`bash scripts/setup-solo-mode.sh` (see `docs/GETTING-STARTED.md`).
+Activated by `AGILE_FLOW_SOLO_MODE=true` (set automatically in
+Codespaces via `.devcontainer/devcontainer.json`).
 
-**Solo mode** — set `AGILE_FLOW_SOLO_MODE=true` to make the hook a no-op. One personal account plays both worker and reviewer roles. Use for workshops and tutorials; the production architecture is the bot-account separation above.
+**Multi-bot mode (production)** — separate worker + reviewer bot
+accounts plus a human merger. Provides separation of duties and an
+audit trail. Requires bot account provisioning
+(`scripts/setup-accounts.sh`). Activated by setting
+`AGILE_FLOW_WORKER_ACCOUNT` (default: `va-worker`) and
+`AGILE_FLOW_REVIEWER_ACCOUNT` (default: `va-reviewer`) env vars.
+The `.claude/hooks/ensure-github-account.sh` hook auto-switches to
+the right account before `gh pr create` and `gh pr review`.
+
+Choose based on use case, not phase. Workshop attendees stay in solo
+mode for the entire workshop. Production teams adopt multi-bot once
+they have provisioned bot accounts and a documented PAT-rotation
+schedule.
 
 ### GitHub CLI (`gh`)
 
 Agents use the `gh` CLI for all GitHub operations (issues, PRs, reviews,
-board ops). Each bot account authenticates via `gh auth login` and the
-`.claude/hooks/ensure-github-account.sh` hook switches to the correct
-account automatically before PR creation and review operations.
+board ops). In solo mode, `gh` operates as the user's personal account
+throughout. In multi-bot mode, each bot account authenticates via
+`gh auth login` and the `.claude/hooks/ensure-github-account.sh` hook
+switches to the correct account automatically before PR creation and
+review operations.
 
 ### MCP Servers
 
