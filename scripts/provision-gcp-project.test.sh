@@ -2095,8 +2095,22 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Per-attendee secret added by #71: PRODUCTION_DATABASE_URL must be
+# auto-pushed alongside NEON_PARENT_BRANCH whenever Neon was provisioned.
+# Without it, deploy.yml's migration step skips silently and Cloud Run
+# starts with DATABASE_URL="" (post-#68 plain env var), which 500s on
+# the first DB query — the bug surfaced in the 2026-04-29 dry-run.
+if grep -q "gh secret set PRODUCTION_DATABASE_URL --repo acme/widget-shop" "$T27/gh.log"; then
+  echo -e "  ${GREEN}✓${NC} PRODUCTION_DATABASE_URL pushed (Neon-provisioned per-attendee secret)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected PRODUCTION_DATABASE_URL push when Neon provisioned"
+  cat "$T27/gh.log"
+  FAIL=$((FAIL + 1))
+fi
+
 # The footer must NOT actually push these — they're cohort-shared, not
-# per-attendee. gh.log should only contain the 4 per-attendee secrets.
+# per-attendee. gh.log should only contain the per-attendee secrets.
 if ! grep -q "gh secret set NEON_API_KEY" "$T27/gh.log"; then
   echo -e "  ${GREEN}✓${NC} cohort-shared NEON_API_KEY was NOT auto-pushed"
   PASS=$((PASS + 1))
