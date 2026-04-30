@@ -1184,6 +1184,8 @@ EOF
   # Use ${var-default} (no colon) so an explicit empty string passed by
   # the caller — like test 15's "" for NEON_API_KEY — stays empty.
   # ${var:-default} would substitute on empty, which we don't want here.
+  # 5th arg is NEON_FORCE_SHARED_PARENT (default false; pass "true" for
+  # collision-reuse tests in the post-#90 world).
   set +e
   PATH="$tmp/bin:$PATH" \
     GCP_PROJECT_ID="af-step57-test" \
@@ -1191,6 +1193,7 @@ EOF
     NEON_API_KEY="${2-fake-api-key}" \
     NEON_PROJECT_ID="${3-fake-project-id}" \
     NEON_BRANCH_NAME="${4-alice}" \
+    NEON_FORCE_SHARED_PARENT="${5-false}" \
     "$SCRIPT" --create-project > "$tmp/stdout.log" 2>&1
   set -e
 
@@ -1262,17 +1265,20 @@ else
 fi
 
 # Test 17: branch exists, secret exists with SAME value → no-op skip
+# Requires NEON_FORCE_SHARED_PARENT=true (since #90) — the realistic
+# trigger for this code path is re-running the same cohort against an
+# already-populated Neon project, which is the explicit-share case.
 
 echo ""
-echo "Test 17: Step 5.7 idempotent when branch + secret already current"
+echo "Test 17: Step 5.7 idempotent when branch + secret already current (with --force-shared-parent)"
 
-T17=$(run_step5_7_test "exists-same-value")
+T17=$(run_step5_7_test "exists-same-value" "fake-api-key" "fake-project-id" "alice" "true")
 
-if grep -q "branch.*alice.*already exists" "$T17/stdout.log"; then
-  echo -e "  ${GREEN}✓${NC} branch-already-exists log line"
+if grep -q "branch.*alice.*already exists.*reusing per NEON_FORCE_SHARED_PARENT" "$T17/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} branch-already-exists log line names the force flag"
   PASS=$((PASS + 1))
 else
-  echo -e "  ${RED}✗${NC} expected 'branch already exists' in stdout"
+  echo -e "  ${RED}✗${NC} expected 'branch already exists; reusing per NEON_FORCE_SHARED_PARENT' in stdout"
   cat "$T17/stdout.log"
   FAIL=$((FAIL + 1))
 fi
@@ -2248,6 +2254,91 @@ if grep -q "\[hook\] Activated pre-push hook" "$T28c/run.log"; then
 else
   echo -e "  ${RED}✗${NC} expected '[hook] Activated' before the GCP_PROJECT_ID error"
   cat "$T28c/run.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# ── Test 29: Neon 409 with NEON_FORCE_SHARED_PARENT unset → fail fast ──
+#
+# Per #90: silent reuse on 409 is the cross-contamination footgun. Two
+# attendees with the same handle (or a re-run cohort against a populated
+# Neon project) should fail fast with an actionable message rather than
+# transparently mounting the second attendee's database-url secret to
+# the first attendee's branch.
+
+echo ""
+echo "Test 29: Step 5.7 fails fast on Neon 409 when NEON_FORCE_SHARED_PARENT unset"
+
+T29=$(run_step5_7_test "exists" "fake-api-key" "fake-project-id" "alice" "false")
+
+# Note: run_step5_7_test wraps the inner call in `set +e`, so the helper
+# always returns 0. Verify behavior via stdout content + gcloud.log.
+
+if grep -q "ERROR: Neon branch 'alice' already exists" "$T29/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} fail-fast error message names the branch and project"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected fail-fast error in stdout"
+  cat "$T29/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if grep -q "set NEON_FORCE_SHARED_PARENT=true" "$T29/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} error message points at the escape hatch"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected error to mention NEON_FORCE_SHARED_PARENT escape hatch"
+  FAIL=$((FAIL + 1))
+fi
+
+# Should NOT have proceeded to write the database-url secret (cross-contam guard)
+if ! grep -q "secrets create database-url\|secrets versions add database-url" "$T29/gcloud.log"; then
+  echo -e "  ${GREEN}✓${NC} did NOT write database-url secret after fail-fast"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} script wrote database-url secret despite collision (cross-contam!)"
+  cat "$T29/gcloud.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# ── Test 30: Neon 409 with NEON_FORCE_SHARED_PARENT=true → silent reuse ──
+#
+# The opt-in path: legitimate re-run of an existing cohort, or paired
+# attendees intentionally sharing a parent branch. Same behavior as the
+# pre-#90 default: reuse the branch, write the secret, no error.
+
+echo ""
+echo "Test 30: Step 5.7 reuses existing branch when NEON_FORCE_SHARED_PARENT=true"
+
+T30=$(run_step5_7_test "exists" "fake-api-key" "fake-project-id" "alice" "true")
+
+if grep -q "reusing per NEON_FORCE_SHARED_PARENT=true" "$T30/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} reuse log line names the force flag"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected 'reusing per NEON_FORCE_SHARED_PARENT' in stdout"
+  cat "$T30/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+if ! grep -q "ERROR: Neon branch" "$T30/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} no fail-fast error when force flag is set"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} script emitted error despite force flag"
+  cat "$T30/stdout.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Should have proceeded through to secret write (preserves the pre-#90 behavior).
+# The script emits its own `[create] database-url secret` /
+# `[skip] database-url secret already current` log prefix on stdout;
+# the underlying gcloud call lives in gcloud.log.
+if grep -qE "\[(create|update|skip)\] database-url secret" "$T30/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} proceeded to database-url secret handling"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} did not reach database-url secret step under force flag"
+  cat "$T30/stdout.log"
   FAIL=$((FAIL + 1))
 fi
 
