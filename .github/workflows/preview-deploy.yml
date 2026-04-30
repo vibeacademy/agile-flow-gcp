@@ -202,21 +202,45 @@ jobs:
             exit 1
           fi
 
-          echo "Testing: $PREVIEW_URL/api/health"
+          # Phase 1: app readiness — /api/health does NOT touch the DB,
+          # so a passing probe means the container booted and is serving
+          # HTTP. Retry loop covers Cloud Run cold-start + Neon wake.
+          echo "Phase 1: $PREVIEW_URL/api/health"
 
+          health_passed=false
           for ATTEMPT in $(seq 1 10); do
             HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$PREVIEW_URL/api/health" || echo "000")
             if [ "$HTTP_STATUS" = "200" ]; then
               echo "Health check passed"
-              echo "result=passed" >> "$GITHUB_OUTPUT"
-              exit 0
+              health_passed=true
+              break
             fi
             echo "Attempt $ATTEMPT: HTTP $HTTP_STATUS, retrying in 6s..."
             sleep 6
           done
 
-          echo "result=failed" >> "$GITHUB_OUTPUT"
-          exit 1
+          if [ "$health_passed" != "true" ]; then
+            echo "::error::Container readiness probe failed after 10 attempts"
+            echo "result=failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # Phase 2: DB reachability — /api/health/db runs `SELECT 1`.
+          # Distinct from /api/health: catches the failure mode where
+          # the container is up but DATABASE_URL is empty/broken (added
+          # in #78 after a 2026-04-30 dry-run shipped a green-CI preview
+          # with no DB and an opaque 500 on the home route).
+          echo "Phase 2: $PREVIEW_URL/api/health/db"
+
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$PREVIEW_URL/api/health/db" || echo "000")
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::DB health probe returned $HTTP_STATUS — DB connection or migrations may be broken"
+            echo "result=failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "DB health check passed"
+          echo "result=passed" >> "$GITHUB_OUTPUT"
 
       # ── Comment on the PR with preview info ───────────────────────────
 

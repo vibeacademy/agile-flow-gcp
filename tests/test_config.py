@@ -98,3 +98,54 @@ def test_production_postgres_url_passes(monkeypatch: pytest.MonkeyPatch) -> None
 
     settings = Settings()
     assert settings.database_url == "postgresql+psycopg://u:p@h.neon.tech/db"
+
+
+def test_preview_sqlite_database_url_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The 2026-04-30 dry-run failure mode: Neon unconfigured, preview
+    # falls through to the dev-default `sqlite:///./dev.db`, app boots
+    # and 500s on the first DB query. The validator must catch this
+    # before the container starts, with the same loudness as production.
+    monkeypatch.setenv("ENVIRONMENT", "preview")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./dev.db")
+    from app.config import Settings
+
+    with pytest.raises(ValueError, match="DATABASE_URL is SQLite in preview"):
+        Settings()
+
+
+def test_preview_postgres_url_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Happy path for preview: Neon branch URL flows through field
+    # validator psycopg3 normalization and is accepted by the model
+    # validator. Confirms #78 didn't accidentally break the preview
+    # happy path while widening the gate.
+    monkeypatch.setenv("ENVIRONMENT", "preview")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@h.neon.tech/preview-pr-1")
+    from app.config import Settings
+
+    settings = Settings()
+    assert settings.database_url == "postgresql+psycopg://u:p@h.neon.tech/preview-pr-1"
+
+
+def test_unfamiliar_environment_treated_as_non_dev(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Future-proofing: any environment name that isn't "development" or
+    # "test" is treated as a non-dev runtime. A staging deploy with
+    # ENVIRONMENT=staging gets the same SQLite refusal as production.
+    monkeypatch.setenv("ENVIRONMENT", "staging")
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    from app.config import Settings
+
+    with pytest.raises(ValueError, match="DATABASE_URL is SQLite in staging"):
+        Settings()
+
+
+def test_test_environment_allows_sqlite(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The test fixtures explicitly use sqlite:// (in-memory) — so
+    # ENVIRONMENT=test must be in the allow list alongside development.
+    # Without this, every pytest run that sets ENVIRONMENT=test would
+    # fail at Settings() construction.
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("DATABASE_URL", "sqlite://")
+    from app.config import Settings
+
+    settings = Settings()
+    assert settings.database_url == "sqlite://"

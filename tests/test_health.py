@@ -1,4 +1,4 @@
-"""Tests for the health check endpoint."""
+"""Tests for the health check endpoints."""
 
 from fastapi.testclient import TestClient
 
@@ -18,3 +18,10 @@ def test_health_does_not_touch_database(client: TestClient) -> None:
     for _ in range(100):
         response = client.get("/api/health")
         assert response.status_code == 200
+
+
+def test_health_db_returns_200_with_working_session(client: TestClient) -> None:
+    """The DB health endpoint runs `SELECT 1` and returns ok."""
+    response = client.get("/api/health/db")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
