@@ -770,6 +770,37 @@ keeps working — just turn the flag on explicitly.
 
 ## Daily Operations
 
+### Project board hygiene: enable auto-move-to-Done
+
+If your project board's tickets stay stuck in **In Review** after
+their PRs merge, the project's built-in **"Item closed → Status:
+Done"** workflow isn't enabled.
+
+The framework's `/bootstrap-workflow` instructs facilitators to
+enable this once at project creation (Step 1.5). For existing
+projects (cohorts already past bootstrap), enable it manually
+via the GitHub Projects UI:
+
+1. Open the project: `https://github.com/orgs/<org>/projects/<N>`
+2. Click **⋯** (top-right) → **Workflows**
+3. Find **"Item closed"**
+4. Set **When** = `Issue is closed`, **Set Status** = `Done`
+5. Toggle **Enabled** → **Save and turn on workflow**
+
+Once enabled, the flow becomes: human merges PR → GitHub
+auto-closes the linked issue (because the PR body has
+`Closes #N`) → built-in workflow bumps the project board's
+Status column to Done. **No agent ever moves tickets to Done** —
+the framework's "only humans move to Done" rule is preserved
+because the human's act of merging triggers the chain.
+
+There is no GraphQL mutation to flip this workflow's `enabled`
+state — `projectV2.workflows` is queryable and
+`deleteProjectV2Workflow` exists, but no
+`createProjectV2Workflow` or `updateProjectV2Workflow` exists in
+the public API. The web UI is the only configuration path. See
+issue #86 for the API research.
+
 ### Viewing Logs
 
 ```bash
