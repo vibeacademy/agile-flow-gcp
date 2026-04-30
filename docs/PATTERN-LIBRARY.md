@@ -47,6 +47,7 @@
 21. [GitHub Actions: Graceful Secret Gating](#21-github-actions-graceful-secret-gating)
 22. [GitHub Actions: CI Checks Not Attaching to PR](#22-github-actions-ci-checks-not-attaching-to-pr)
 23. [GitHub Actions: Reusable Workflow Missing workflow_call](#23-github-actions-reusable-workflow-missing-workflow_call)
+33. [GitHub Actions: Silent-Skip Cascade in `if:` Guards](#33-github-actions-silent-skip-cascade-in-if-guards)
 
 ### GitHub Platform
 
@@ -1215,3 +1216,113 @@ deploys alternated against the same service. First fixed defensively
 in #66 with `--remove-env-vars=DATABASE_URL`; later re-fixed
 structurally in #68 by switching both workflows to the same type
 (plain env var).
+
+---
+
+## 33. GitHub Actions: Silent-Skip Cascade in `if:` Guards
+
+**Gotcha:** A workflow step with `if: steps.foo.outputs.bar != ''`
+treats "value missing" as a benign skip signal. But there are two
+distinct reasons an output can be empty:
+
+1. **Legitimate opt-out** — the upstream step was conditionally
+   skipped (user didn't configure the relevant secret, fork doesn't
+   ship that capability, etc.). The downstream skip is correct.
+2. **Silent failure** — the upstream step ran but failed to emit the
+   output (output-name typo, action API change, transient API
+   failure). The downstream skip MASKS the regression.
+
+GitHub Actions can't tell these apart from the workflow file alone.
+Without a guard, the wrong case looks identical to the right case
+on the run summary: green CI, every step "succeeded" or "skipped,"
+and a broken artifact ships.
+
+This template's preview-deploy.yml burned this pattern at scale.
+A typo in the Neon action's output name (`db_url_with_pooler` vs an
+older `db_url`) caused `steps.neon.outputs.db_url_with_pooler` to be
+empty for the entire history of the template. Every downstream
+`!= ''` guard skipped silently. Smoke test passed against
+`/api/health` (which doesn't touch the DB). PR comments said "Ready
+for testing." Only when a human opened the URL did the failure
+surface as a 500 on `/`.
+
+**Pattern:** When a step's `if:` checks an upstream output for
+non-emptiness, ask: *what does empty mean?*
+
+- If empty means "user opted out" — keep the guard, add an inline
+  comment explaining what disables it. The reader can tell intentional
+  skip from accidental skip.
+- If empty means "the upstream step failed silently" — add a
+  **validate step** between the producing and consuming steps. The
+  validate step fires under the same conditions as the consumers, runs
+  an explicit `[ -z "$VAL" ] && exit 1` check with a clear error
+  message, and turns the latent failure into a workflow-level failure
+  the user actually sees.
+
+```yaml
+# BEFORE — silent-skip cascade
+- name: Create Neon branch
+  id: neon
+  if: steps.check_secrets.outputs.neon_configured == 'true'
+  uses: neondatabase/create-branch-action@v5
+  ...
+
+- name: Run migrations
+  # If neon_configured=true but db_url_with_pooler='' (typo, API change),
+  # this skip silently masks the regression.
+  if: steps.neon.outputs.db_url_with_pooler != ''
+  run: uv run alembic upgrade head
+```
+
+```yaml
+# AFTER — fail-loud validation gate
+- name: Create Neon branch
+  id: neon
+  if: steps.check_secrets.outputs.neon_configured == 'true'
+  uses: neondatabase/create-branch-action@v5
+  ...
+
+- name: Verify Neon branch produced a usable connection URL
+  if: steps.check_secrets.outputs.neon_configured == 'true'
+  run: |
+    if [ -z "${{ steps.neon.outputs.db_url_with_pooler }}" ]; then
+      echo "::error::Neon branch step succeeded but did not emit db_url_with_pooler."
+      echo "::error::Likely causes: output-name typo, Neon action API change, transient failure."
+      exit 1
+    fi
+
+- name: Run migrations
+  # Now safe: validate step above ensures the output is populated.
+  if: steps.check_secrets.outputs.neon_configured == 'true'
+  env:
+    DATABASE_URL: ${{ steps.neon.outputs.db_url_with_pooler }}
+  run: uv run alembic upgrade head
+```
+
+**Distinguishing legitimate opt-outs from silent-skip cascades:** the
+clean signal is whether the producing step's *own* `if:` is a
+superset of (or equal to) the consumer's. If the producer ran (its
+`if` was true), then a missing output means failure, not skip.
+Validate step's `if:` should match the producer's, not the
+consumer's "is the output set?" pattern.
+
+**Example of a legitimate opt-out** (kept as-is):
+
+```yaml
+- name: Run BDD tests
+  # Many forks of this template don't ship BDD tests — empty hash
+  # means "no .feature files in this repo," NOT "feature collection
+  # failed." Skip-when-absent is correct here.
+  if: hashFiles('features/*.feature') != ''
+  run: pytest features/
+```
+
+Surfaced in the 2026-04-29 audit (#52). The cumulative cost of
+silent-skip cascades in this template's preview-deploy.yml was
+estimated at three latent bugs hidden for the entire history of the
+fork — a typo, a psycopg3 driver mismatch, and mutually-exclusive
+gcloud env-var flags — none of which would have manifested if any
+single CI run had failed loud at the missing output. Conversion to
+fail-loud is therefore a *retroactive* defense: it doesn't fix the
+specific bugs the cascade hid, but it ensures the next bug surfaces
+within one run instead of months.

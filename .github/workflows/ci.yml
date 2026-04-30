@@ -155,6 +155,11 @@ jobs:
           uv run --extra dev pytest --tb=short -q --cov --cov-report=term-missing --cov-fail-under=${COVERAGE_THRESHOLD:-80}
 
       - name: Run BDD tests
+        # Legitimate opt-out (per #52 silent-skip audit): hashFiles('') == '' when
+        # the fork has no `features/*.feature` files. Many forks of this template
+        # don't ship BDD tests — the empty result means "no BDD features in this
+        # repo," not "feature collection failed." Keep as a skip-when-absent
+        # gate, NOT a silent-failure cascade.
         if: steps.check_python.outputs.skip != 'true' && hashFiles('features/*.feature') != ''
         run: uv run --extra dev pytest --tb=short -q features/
 
