@@ -169,6 +169,19 @@ if ! gh auth status --active >/dev/null 2>&1; then
     exit 1
 fi
 
+# Detect interactive vs non-interactive run. Codespace `postCreateCommand`
+# (and any other piped/redirected invocation) lacks a TTY on stdin, which
+# means `gh auth refresh` would hang waiting for browser OAuth, and a
+# fail-fast on missing admin would break Codespace creation. In those
+# contexts we WARN and continue instead. See #97.
+IS_INTERACTIVE=true
+if [ ! -t 0 ]; then
+    IS_INTERACTIVE=false
+    print_warning "Non-interactive context detected (no TTY on stdin)"
+    print_info "Some steps will WARN+continue instead of running interactive prompts."
+    echo ""
+fi
+
 # ───────────────────────────────────────────────────────────────────
 #  Step 1/8: Detect shell + show current state
 # ───────────────────────────────────────────────────────────────────
@@ -265,6 +278,15 @@ done
 
 if [ ${#missing_scopes[@]} -eq 0 ]; then
     print_success "All required scopes present (${required_scopes[*]})"
+elif [ "$IS_INTERACTIVE" != "true" ]; then
+    # Non-interactive (Codespace postCreateCommand, CI, piped invocation):
+    # `gh auth refresh` would hang waiting for browser OAuth. WARN and
+    # surface the manual command for the user to run from their first
+    # interactive terminal. See #97.
+    print_warning "Missing scopes: ${missing_scopes[*]}"
+    print_warning "Skipping refresh (non-interactive context — would block on browser OAuth)"
+    print_info "Run manually after this script finishes:"
+    print_info "  gh auth refresh -h github.com -s $(IFS=,; echo "${missing_scopes[*]}")"
 else
     print_warning "Missing scopes: ${missing_scopes[*]}"
     print_info "Running: gh auth refresh -h github.com -s ${missing_scopes[*]}"
@@ -329,11 +351,17 @@ else
         if [ "$admin" = "true" ]; then
             print_success "${active_account} has admin access on ${repo}"
         else
-            print_error "${active_account} does NOT have admin access on ${repo}"
-            print_info "Solo mode requires admin access (to write secrets, manage branches, configure project boards)"
+            # Downgrade: this used to exit 1, but admin is a *signal*, not a
+            # gatekeeper. The bootstrap's other outputs (env var, hook
+            # activation) are still valuable; downstream scripts (gh secret
+            # set, branch protection setup) will surface their own clear
+            # errors when admin is actually needed. See #97.
+            print_warning "${active_account} does NOT have admin access on ${repo}"
+            print_info "Solo mode normally requires admin (write secrets, manage branches, project boards)."
             print_info "Either: (a) you are not the fork owner — fork the repo first, OR"
-            print_info "        (b) you are operating in a multi-bot setup — solo mode does not apply"
-            exit 1
+            print_info "        (b) you opened a Codespace from the upstream repo — fork it"
+            print_info "            and create a Codespace from your fork, OR"
+            print_info "        (c) you are operating in a multi-bot setup — solo mode does not apply"
         fi
     fi
 fi
