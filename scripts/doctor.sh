@@ -335,46 +335,10 @@ fi
 
 fi  # end gh guard
 
-# ═══════════════════════════════════════════════════════════════════
-#  4. MCP Config
-# ═══════════════════════════════════════════════════════════════════
-section "MCP Config"
-
-# .mcp.json exists (FAIL)
-if [ -f ".mcp.json" ]; then
-    pass "MCP Config" ".mcp.json exists"
-
-    if ! JQ_CMD=$(resolve_cmd jq); then
-        skip "MCP Config" "Content checks (memory server, npx path)" "jq not installed"
-    else
-        # memory server (WARN)
-        if "$JQ_CMD" -e '.mcpServers.memory' .mcp.json &>/dev/null; then
-            pass "MCP Config" "memory server configured"
-        else
-            warn "MCP Config" "memory server missing from .mcp.json" "Optional but recommended for agent context"
-        fi
-
-        # npx path resolves (WARN)
-        mcp_npx_path=$("$JQ_CMD" -r '.mcpServers.memory.command // empty' .mcp.json 2>/dev/null)
-        if [ -n "$mcp_npx_path" ]; then
-            if resolve_cmd "$mcp_npx_path" &>/dev/null; then
-                pass "MCP Config" "npx command in .mcp.json resolves: $mcp_npx_path"
-                # Also check that node is available (npx shim needs it)
-                if resolve_cmd node &>/dev/null; then
-                    pass "MCP Config" "node available (required by npx)"
-                else
-                    warn "MCP Config" "npx found but node not resolvable" "npx requires node — install from https://nodejs.org"
-                fi
-            else
-                warn "MCP Config" "npx path in .mcp.json does not resolve: $mcp_npx_path" "Update .mcp.json command path or install npx"
-            fi
-        fi
-    fi  # end jq guard
-else
-    fail "MCP Config" ".mcp.json not found" "Run bootstrap.sh Phase 0 to create it"
-fi
-
 # Token env-var precedence audit (FAIL solo / WARN multi-bot)
+#
+# Outside the gh guard intentionally: token env vars matter even when
+# gh isn't installed yet (they would poison any future gh install).
 #
 # `gh` uses GITHUB_PERSONAL_ACCESS_TOKEN (any suffix) and GH_TOKEN above
 # its keyring whenever set. That makes `gh auth switch` silently
@@ -430,6 +394,45 @@ if [ ${#classic_pat_names[@]} -gt 0 ]; then
     classic_summary="$(IFS=', '; echo "${classic_pat_names[*]}")"
     warn "GitHub Auth" "Classic PAT(s) detected: ${classic_summary}" \
         "Prefer fine-grained PATs (github_pat_*); they scope to specific repos and expire."
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+#  4. MCP Config
+# ═══════════════════════════════════════════════════════════════════
+section "MCP Config"
+
+# .mcp.json exists (FAIL)
+if [ -f ".mcp.json" ]; then
+    pass "MCP Config" ".mcp.json exists"
+
+    if ! JQ_CMD=$(resolve_cmd jq); then
+        skip "MCP Config" "Content checks (memory server, npx path)" "jq not installed"
+    else
+        # memory server (WARN)
+        if "$JQ_CMD" -e '.mcpServers.memory' .mcp.json &>/dev/null; then
+            pass "MCP Config" "memory server configured"
+        else
+            warn "MCP Config" "memory server missing from .mcp.json" "Optional but recommended for agent context"
+        fi
+
+        # npx path resolves (WARN)
+        mcp_npx_path=$("$JQ_CMD" -r '.mcpServers.memory.command // empty' .mcp.json 2>/dev/null)
+        if [ -n "$mcp_npx_path" ]; then
+            if resolve_cmd "$mcp_npx_path" &>/dev/null; then
+                pass "MCP Config" "npx command in .mcp.json resolves: $mcp_npx_path"
+                # Also check that node is available (npx shim needs it)
+                if resolve_cmd node &>/dev/null; then
+                    pass "MCP Config" "node available (required by npx)"
+                else
+                    warn "MCP Config" "npx found but node not resolvable" "npx requires node — install from https://nodejs.org"
+                fi
+            else
+                warn "MCP Config" "npx path in .mcp.json does not resolve: $mcp_npx_path" "Update .mcp.json command path or install npx"
+            fi
+        fi
+    fi  # end jq guard
+else
+    fail "MCP Config" ".mcp.json not found" "Run bootstrap.sh Phase 0 to create it"
 fi
 
 # ═══════════════════════════════════════════════════════════════════
