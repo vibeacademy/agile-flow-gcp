@@ -81,14 +81,18 @@ jobs:
   actionlint:
     # Static checker for GitHub Actions YAML. Catches workflow-level
     # bugs that bash shellcheck and project tests can't reach:
-    #   - `secrets.*` referenced inside `if:` expressions
-    #   - Unknown action inputs (e.g. dropped `service_account` arg)
+    #   - `secrets.*` referenced inside `if:` expressions (#29 class)
+    #   - Unknown action inputs e.g. dropped `service_account` arg
+    #     (#32 class)
     #   - Malformed expressions, undefined contexts
     #
     # Filed as #37 after three workflow YAML bugs reached `main` in
-    # earlier sessions (#27, #29, #32). Catches the same class of
-    # problem as the #76 `--traffic=latest=100` bug would have been
-    # caught by — line-level workflow validation pre-merge.
+    # earlier sessions (#27, #29, #32). actionlint validates workflow
+    # structure and recognized action inputs; it does NOT shellcheck
+    # the contents of free-form strings (e.g. gcloud `flags:` values).
+    # Bugs in that class — like #76 (`--traffic=latest=100` rejected
+    # by gcloud at runtime) — need a separate guard, e.g. an end-to-end
+    # deploy in CI or a curated allowlist of known gcloud flags.
     #
     # Job runs on every PR (not path-filtered): actionlint is <5s and
     # the overhead vs. introducing a paths-filter dependency is
