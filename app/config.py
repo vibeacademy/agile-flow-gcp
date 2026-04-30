@@ -35,26 +35,31 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _refuse_sqlite_in_production(self) -> Self:
+    def _refuse_sqlite_outside_dev(self) -> Self:
         # Defense-in-depth: the dev-default sqlite URL must never reach
-        # a production runtime. If the secret-mounted DATABASE_URL is
-        # missing or the mount didn't override the default, fail at
-        # startup with a clear message rather than 500ing on the first
-        # DB query with `no such table: todo`. See #63 / #71.
-        if self.environment != "production":
+        # any non-dev runtime (production, preview, staging). If
+        # DATABASE_URL is missing or doesn't override the default, fail
+        # at startup with a clear message rather than 500ing on the
+        # first DB query with `no such table: todo`. Originally only
+        # gated `production`; #78 generalized after a 2026-04-30 dry-run
+        # showed previews silently fell through to SQLite when Neon was
+        # unconfigured. See #63 / #71 / #78.
+        if self.environment in ("development", "test"):
             return self
         if not self.database_url:
             raise ValueError(
-                "DATABASE_URL is empty in production. "
-                "Check that the Secret Manager secret 'database-url' is "
-                "mounted in deploy.yml and the Cloud Run service has "
-                "secretAccessor on it."
+                f"DATABASE_URL is empty in {self.environment}. "
+                "Check that DATABASE_URL is set on the Cloud Run revision "
+                "(production reads from PRODUCTION_DATABASE_URL secret; "
+                "preview reads from the Neon branch action output)."
             )
         if self.database_url.startswith("sqlite"):
             raise ValueError(
-                f"DATABASE_URL is SQLite in production: {self.database_url!r}. "
-                "Production must use Postgres. Likely cause: the secret-mounted "
-                "DATABASE_URL env var didn't override the dev default."
+                f"DATABASE_URL is SQLite in {self.environment}: {self.database_url!r}. "
+                "Non-dev environments must use Postgres. Likely cause: the "
+                "DATABASE_URL env var didn't override the dev default — for "
+                "previews, NEON_API_KEY may be unconfigured so the Neon branch "
+                "step was skipped."
             )
         return self
 
