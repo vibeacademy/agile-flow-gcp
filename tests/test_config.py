@@ -1,9 +1,14 @@
 """Tests for app.config.Settings.
 
-Pins the contract that database_url is normalized to use the psycopg3
-driver scheme. SQLAlchemy resolves the bare `postgresql://` scheme to
-psycopg2 (not installed in this project), so without normalization
-every Neon-backed deploy would ImportError on first DB use.
+Pins two contracts:
+  1. database_url is normalized to use the psycopg3 driver scheme.
+     SQLAlchemy resolves the bare `postgresql://` scheme to psycopg2
+     (not installed in this project), so without normalization every
+     Neon-backed deploy would ImportError on first DB use.
+  2. In production, an empty or sqlite-shaped DATABASE_URL fails fast
+     at Settings construction (model validator) — turns the silent
+     "first request 500s with no such table: todo" failure mode into
+     a loud ValueError at startup. See #63.
 """
 
 import pytest
@@ -45,3 +50,51 @@ def _make_settings(database_url: str | None = None):
 )
 def test_database_url_scheme_normalization(input_url: str, expected: str) -> None:
     assert _make_settings(input_url).database_url == expected
+
+
+def test_production_empty_database_url_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Reading the empty-string case requires going through env vars: a
+    # bare Settings(database_url="") would still trigger this, but the
+    # realistic failure mode is the secret mount producing an empty env
+    # var, so we exercise that path explicitly.
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DATABASE_URL", "")
+    from app.config import Settings
+
+    with pytest.raises(ValueError, match="DATABASE_URL is empty in production"):
+        Settings()
+
+
+def test_production_sqlite_database_url_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./dev.db")
+    from app.config import Settings
+
+    with pytest.raises(ValueError, match="DATABASE_URL is SQLite in production"):
+        Settings()
+
+
+def test_development_empty_database_url_uses_sqlite_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Development is the local-dev path: missing DATABASE_URL must NOT
+    # raise — pydantic's default ("sqlite:///./dev.db") applies and the
+    # app boots against the local SQLite file.
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    from app.config import Settings
+
+    settings = Settings()
+    assert settings.database_url == "sqlite:///./dev.db"
+
+
+def test_production_postgres_url_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The happy path: real Neon URL in production. Field validator
+    # normalizes it to psycopg3; model validator sees a non-sqlite,
+    # non-empty URL and returns clean.
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@h.neon.tech/db")
+    from app.config import Settings
+
+    settings = Settings()
+    assert settings.database_url == "postgresql+psycopg://u:p@h.neon.tech/db"
