@@ -18,6 +18,8 @@
 6. [Cloud Run: Scale-to-Zero Cold Starts](#6-cloud-run-scale-to-zero-cold-starts)
 7. [Cloud Run: Artifact Registry Path, Not gcr.io](#7-cloud-run-artifact-registry-path-not-gcrio)
 8. [Cloud Run: Revision Tagging for PR Previews](#8-cloud-run-revision-tagging-for-pr-previews)
+31. [Cloud Run: Traffic Doesn't Migrate to New Revisions by Default](#31-cloud-run-traffic-doesnt-migrate-to-new-revisions-by-default)
+32. [Cloud Run: Plain Env Var and Secret Mount on the Same Key Collide](#32-cloud-run-plain-env-var-and-secret-mount-on-the-same-key-collide)
 
 ### Neon
 
@@ -1056,3 +1058,146 @@ not need to apply it manually for new workshop projects. The runbook's
 T-3 days section retains a recovery snippet for projects provisioned
 before #19, or for cases where the override needs to be re-applied
 out-of-band.
+
+---
+
+## 31. Cloud Run: Traffic Doesn't Migrate to New Revisions by Default
+
+**Gotcha:** When a Cloud Run service is pre-created with a placeholder
+revision (e.g. by a provision script seeding `cloudrun/container/hello`)
+and 100% traffic is pinned to that revision, subsequent
+`gcloud run deploy` and `google-github-actions/deploy-cloudrun@v2`
+calls **do not migrate traffic** away from the placeholder. New
+revisions are created and report Ready, but receive 0% of traffic.
+The service URL serves the placeholder indefinitely; CI reports green;
+the symptom is opaque (wrong content, no error). Nobody notices until
+they hit the URL.
+
+This is the inverse of the usual Cloud Run mental model. A naked
+`gcloud run deploy` with no traffic flags routes 100% to the new
+revision. But once *any* explicit traffic split exists on the service,
+deploys preserve that split — even when the latest revision is
+healthier than what's currently serving.
+
+**Pattern:** When a deploy is meant to shift production to the new
+revision, pass `--traffic=latest=100` (or run
+`gcloud run services update-traffic --to-latest` post-deploy):
+
+```yaml
+# In .github/workflows/deploy.yml
+- name: Deploy to Cloud Run
+  uses: google-github-actions/deploy-cloudrun@v2
+  with:
+    service: agile-flow-app
+    image: ${{ env.IMAGE }}
+    region: us-central1
+    flags: --traffic=latest=100
+```
+
+```bash
+# Or post-deploy, equivalent end state:
+gcloud run services update-traffic agile-flow-app \
+  --region=us-central1 \
+  --to-latest
+```
+
+Preview revisions intentionally remain `--no-traffic --tag=pr-N` and
+are unaffected — the flag only applies to the production deploy job.
+
+Surfaced in the 2026-04-29 dry-run on a fresh fork: the placeholder
+service from Step 5.8 of the provision script absorbed 100% of
+traffic; six green CI runs later, the URL was still serving "Hello
+from Cloud Run!". Fixed in #66.
+
+---
+
+## 32. Cloud Run: Plain Env Var and Secret Mount on the Same Key Collide
+
+**Gotcha:** Cloud Run treats plain environment variables and Secret
+Manager mounts as *different types* on the same key. Once a service
+has `DATABASE_URL` set as a plain env var, switching it to a secret
+mount (or vice versa) on the next deploy fails with:
+
+```text
+ERROR: (gcloud.run.deploy) Cannot update environment variable
+[DATABASE_URL] to the given type because it has already been set with
+a different type.
+```
+
+The error is opaque — nothing in the message hints that this is
+state-drift rather than a permission, syntax, or quota issue. The
+natural debugging path (re-check IAM, re-check secret existence,
+re-check region) goes nowhere.
+
+The trap is especially nasty when **two workflows write the same
+service** with different types — for example, a production workflow
+that mounts the secret and a preview workflow that passes the value
+as a literal. Each workflow succeeds in isolation; whichever ran most
+recently "wins" the type and the next run of the other workflow
+fails. Adding `--remove-env-vars=KEY` (or `--remove-secrets=KEY`) on
+just one side patches that direction but leaves the other broken on
+the next alternation. The 2026-04-29 cross-workflow analysis
+(`session-journals/2026-04-29.md` Bug 2) calls this out: *"A naive
+defensive fix — adding `--remove-env-vars` and `--remove-secrets` —
+does not solve this. It only patches one direction at a time."*
+
+**Pattern:** Use the **same env-var type on every workflow that
+deploys the service.** When prod and preview both write
+`DATABASE_URL`, both should write it as a plain `env_vars:` literal
+(or both as a secret mount — but plain literal is the cheaper end of
+the trade-off, since preview already needs a literal anyway to
+inject the per-PR Neon branch URL).
+
+```yaml
+# .github/workflows/deploy.yml — production
+- name: Deploy to Cloud Run
+  uses: google-github-actions/deploy-cloudrun@v2
+  with:
+    service: agile-flow-app
+    image: ${{ env.IMAGE }}
+    region: us-central1
+    flags: --traffic=latest=100
+    env_vars: |
+      ENVIRONMENT=production
+      DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL }}
+```
+
+```yaml
+# .github/workflows/preview-deploy.yml — preview
+- name: Deploy preview revision
+  uses: google-github-actions/deploy-cloudrun@v2
+  with:
+    service: agile-flow-app
+    image: ${{ env.IMAGE }}
+    region: us-central1
+    flags: --no-traffic --tag=pr-${{ github.event.pull_request.number }}
+    env_vars: |
+      ENVIRONMENT=preview
+      DATABASE_URL=${{ steps.neon-branch.outputs.db_url }}
+```
+
+Both workflows write the same key as the same type. The collision
+failure mode is structurally impossible regardless of run order.
+
+**Trade-off:** the connection string is now a plain env var on the
+revision instead of a Secret Manager mount. Acceptable because (a)
+preview already exposes the Neon URL as a literal, so consistency
+between the two pipelines is more valuable than asymmetric hardening
+of just one side; (b) Cloud Run revisions are immutable and the env
+vars are scoped to the service, not logged or globally readable.
+
+**Workarounds that don't scale:** `--remove-env-vars=KEY` (or
+`--remove-secrets=KEY`) paired with the opposite type works when only
+one workflow ever deploys the service, since each run can clear what
+the previous run wrote. It breaks down the moment prod and preview
+alternate against the same service — see #66 (the workaround) and
+#68 (the structural fix). Larger remediation options like per-PR
+secrets (`database-url-pr-N`) or separate services per environment
+(`agile-flow-app-prod`, `agile-flow-app-pr-N`) are tracked for
+post-workshop work.
+
+Surfaced in the 2026-04-29 dry-run when production and preview
+deploys alternated against the same service. First fixed defensively
+in #66 with `--remove-env-vars=DATABASE_URL`; later re-fixed
+structurally in #68 by switching both workflows to the same type
+(plain env var).
