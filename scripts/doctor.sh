@@ -335,6 +335,67 @@ fi
 
 fi  # end gh guard
 
+# Token env-var precedence audit (FAIL solo / WARN multi-bot)
+#
+# Outside the gh guard intentionally: token env vars matter even when
+# gh isn't installed yet (they would poison any future gh install).
+#
+# `gh` uses GITHUB_PERSONAL_ACCESS_TOKEN (any suffix) and GH_TOKEN above
+# its keyring whenever set. That makes `gh auth switch` silently
+# ineffective: the keyring's "active account" pointer updates, but
+# every gh call authenticates with the env-var token instead. In
+# solo mode this breaks agent workflows opaquely; in multi-bot it's
+# tolerable but still surprising.
+#
+# Also flags classic PATs (ghp_*) as a credential-hygiene WARN —
+# prefer fine-grained PATs (github_pat_*) which can scope to specific
+# repos and expire. See #84.
+#
+# Token preview (first 4...last 4) — never logs the full value.
+mask_token() {
+    local t="$1"
+    if [ ${#t} -ge 12 ]; then
+        echo "${t:0:4}...${t: -4}"
+    else
+        echo "(set, ${#t} chars)"
+    fi
+}
+
+# Build a list of "NAME=preview" entries for every detected token var.
+token_entries=()
+classic_pat_names=()
+while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    name="${entry%%=*}"
+    value="${entry#*=}"
+    token_entries+=("${name}=$(mask_token "$value")")
+    # Classic PAT prefix: ghp_
+    if [[ "$value" == ghp_* ]]; then
+        classic_pat_names+=("$name")
+    fi
+done < <(env | grep -E "^(GITHUB_PERSONAL_ACCESS_TOKEN|GH_TOKEN)" || true)
+
+if [ ${#token_entries[@]} -eq 0 ]; then
+    pass "GitHub Auth" "No GITHUB_PERSONAL_ACCESS_TOKEN env vars (gh keyring is the source of truth)"
+else
+    # Build a one-line summary listing every detected var.
+    summary="$(IFS=', '; echo "${token_entries[*]}")"
+    if [ "${AGILE_FLOW_SOLO_MODE:-false}" = "true" ]; then
+        fail "GitHub Auth" "Token env vars override gh auth switch in solo mode: ${summary}" \
+            "Remove from your shell rc (and rotate the tokens). Helper: scripts/setup-solo-mode.sh audits these."
+    else
+        warn "GitHub Auth" "Token env vars override gh auth switch: ${summary}" \
+            "Multi-bot mode tolerates this if you understand the precedence."
+    fi
+fi
+
+# Classic-PAT hygiene check (WARN regardless of mode).
+if [ ${#classic_pat_names[@]} -gt 0 ]; then
+    classic_summary="$(IFS=', '; echo "${classic_pat_names[*]}")"
+    warn "GitHub Auth" "Classic PAT(s) detected: ${classic_summary}" \
+        "Prefer fine-grained PATs (github_pat_*); they scope to specific repos and expire."
+fi
+
 # ═══════════════════════════════════════════════════════════════════
 #  4. MCP Config
 # ═══════════════════════════════════════════════════════════════════
@@ -372,19 +433,6 @@ if [ -f ".mcp.json" ]; then
     fi  # end jq guard
 else
     fail "MCP Config" ".mcp.json not found" "Run bootstrap.sh Phase 0 to create it"
-fi
-
-# GITHUB_PERSONAL_ACCESS_TOKEN (WARN — optional, only needed for direct GraphQL API calls)
-if [ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]; then
-    # Mask the token in output — guard against short tokens
-    if [ ${#GITHUB_PERSONAL_ACCESS_TOKEN} -ge 12 ]; then
-        token_preview="${GITHUB_PERSONAL_ACCESS_TOKEN:0:4}...${GITHUB_PERSONAL_ACCESS_TOKEN: -4}"
-    else
-        token_preview="(set, ${#GITHUB_PERSONAL_ACCESS_TOKEN} chars)"
-    fi
-    pass "MCP Config" "GITHUB_PERSONAL_ACCESS_TOKEN set ($token_preview)"
-else
-    skip "MCP Config" "GITHUB_PERSONAL_ACCESS_TOKEN not set" "Optional — gh auth handles GitHub access"
 fi
 
 # ═══════════════════════════════════════════════════════════════════
