@@ -241,12 +241,16 @@ else
     fail "Git Config" "user.email not set" "git config --global user.email \"you@example.com\""
 fi
 
-# core.hooksPath (WARN)
+# core.hooksPath (FAIL when the hook file exists — pre-push gate dormant)
 hooks_path=$(git config --local core.hooksPath 2>/dev/null || true)
 if [ "$hooks_path" = "scripts/hooks" ]; then
     pass "Git Config" "core.hooksPath set to scripts/hooks"
+elif [ -f "scripts/hooks/pre-push" ]; then
+    # Hook exists but is dormant — quality gate is not running. See #77.
+    fail "Git Config" "core.hooksPath is '${hooks_path:-unset}'; pre-push hook is dormant" "git config --local core.hooksPath scripts/hooks"
 else
-    warn "Git Config" "core.hooksPath is '${hooks_path:-unset}' (expected scripts/hooks)" "git config --local core.hooksPath scripts/hooks"
+    # No hook file in repo — nothing to activate. Just note it.
+    warn "Git Config" "core.hooksPath is '${hooks_path:-unset}' (no scripts/hooks/pre-push present)" "git config --local core.hooksPath scripts/hooks"
 fi
 
 # pre-push exists + executable (WARN)

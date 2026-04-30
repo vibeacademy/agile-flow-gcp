@@ -57,8 +57,14 @@ Now clone it locally:
 cd ~/projects   # or wherever you keep repos
 git clone https://github.com/your-name/my-app.git
 cd my-app
+git config --local core.hooksPath scripts/hooks
 npm install
 ```
+
+The `git config` line activates the pre-push quality gate. Without it,
+broken code can reach `main` and trigger a failing production deploy.
+The setting is per-clone, not stored in the repo, so every fresh clone
+needs this command once.
 
 **You should see:** Dependencies installed with no errors.
 

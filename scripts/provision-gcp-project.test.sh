@@ -2127,6 +2127,130 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 28: Step 0 activates core.hooksPath when pre-push hook exists ──
+#
+# Per #77: every fresh fork must leave the pre-push hook active after the
+# provisioner runs. core.hooksPath is per-clone and not auto-set by git
+# clone, so without this step the working hook is dormant. Run the
+# provisioner in a temp dir that simulates a fresh fork (real `.git`,
+# placeholder `scripts/hooks/pre-push`), and assert:
+#   1. After the run, `git config --local core.hooksPath` returns
+#      `scripts/hooks`
+#   2. The activation message was logged
+#   3. Re-running is a no-op (idempotent — message NOT logged again)
+#
+# We don't need the script to succeed end-to-end here. Step 0 runs
+# before any GCP call; we just need it to fire.
+
+echo ""
+echo "Test 28: Step 0 activates core.hooksPath in a fresh fork"
+
+T28=$(mktemp -d -t aflowtest-XXXX)
+
+# Build the simulated fork tree
+git init -q -b main "$T28"
+mkdir -p "$T28/scripts/hooks"
+echo '#!/usr/bin/env bash' > "$T28/scripts/hooks/pre-push"
+chmod +x "$T28/scripts/hooks/pre-push"
+
+# Stub gcloud so the script's later steps fail fast — we only care that
+# Step 0 ran. A bare `false`-returning gcloud forces an early failure
+# inside the project-create path, but Step 0 fires first.
+mkdir -p "$T28/bin"
+cat > "$T28/bin/gcloud" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$T28/bin/gcloud"
+
+# First invocation
+set +e
+PATH="$T28/bin:$PATH" GCP_PROJECT_ID="af-step0-test" \
+  bash -c "cd '$T28' && '$SCRIPT'" > "$T28/run1.log" 2>&1
+set -e
+
+# Assertion 1: hooksPath is now set in the temp repo
+hooks_path=$(git -C "$T28" config --local --get core.hooksPath 2>/dev/null || echo "(unset)")
+assert_eq "scripts/hooks" "$hooks_path" "core.hooksPath set after Step 0"
+
+# Assertion 2: activation message logged on first run
+if grep -q "\[hook\] Activated pre-push hook" "$T28/run1.log"; then
+  echo -e "  ${GREEN}✓${NC} activation message logged on first run"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[hook] Activated' message in stdout"
+  cat "$T28/run1.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Second invocation — should be a no-op (idempotent)
+set +e
+PATH="$T28/bin:$PATH" GCP_PROJECT_ID="af-step0-test" \
+  bash -c "cd '$T28' && '$SCRIPT'" > "$T28/run2.log" 2>&1
+set -e
+
+# Assertion 3: no activation message on second run (already configured)
+if ! grep -q "\[hook\] Activated pre-push hook" "$T28/run2.log"; then
+  echo -e "  ${GREEN}✓${NC} idempotent — no activation message on second run"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} activation re-fired on second run; should be no-op"
+  cat "$T28/run2.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Assertion 4: when scripts/hooks/pre-push is absent, Step 0 silently skips
+T28b=$(mktemp -d -t aflowtest-XXXX)
+git init -q -b main "$T28b"
+# Note: NO scripts/hooks/pre-push file here
+
+set +e
+PATH="$T28/bin:$PATH" GCP_PROJECT_ID="af-step0-test" \
+  bash -c "cd '$T28b' && '$SCRIPT'" > "$T28b/run.log" 2>&1
+set -e
+
+if ! grep -q "\[hook\]" "$T28b/run.log"; then
+  echo -e "  ${GREEN}✓${NC} no [hook] log when pre-push hook is absent"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} should not log [hook] activation when no hook file present"
+  cat "$T28b/run.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# Assertion 5: activation fires even before the GCP_PROJECT_ID required-
+# check fails. This is the regression guard for Step 0's placement —
+# without it, a future refactor that pushes Step 0 below the input
+# validation would silently break the most common day-1 failure path
+# (user runs script without setting GCP_PROJECT_ID).
+T28c=$(mktemp -d -t aflowtest-XXXX)
+git init -q -b main "$T28c"
+mkdir -p "$T28c/scripts/hooks"
+echo '#!/usr/bin/env bash' > "$T28c/scripts/hooks/pre-push"
+chmod +x "$T28c/scripts/hooks/pre-push"
+
+set +e
+# Note: NO GCP_PROJECT_ID set — script must exit 1, but Step 0 should
+# still have run.
+PATH="$T28/bin:$PATH" \
+  bash -c "cd '$T28c' && '$SCRIPT'" > "$T28c/run.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "1" "$ec" "script exits 1 when GCP_PROJECT_ID is unset (precondition for Assertion 5)"
+
+hooks_path=$(git -C "$T28c" config --local --get core.hooksPath 2>/dev/null || echo "(unset)")
+assert_eq "scripts/hooks" "$hooks_path" "core.hooksPath set even when GCP_PROJECT_ID is unset (Step 0 fires before input validation)"
+
+if grep -q "\[hook\] Activated pre-push hook" "$T28c/run.log"; then
+  echo -e "  ${GREEN}✓${NC} activation message logged before exit (Step 0 ran before GCP_PROJECT_ID check)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[hook] Activated' before the GCP_PROJECT_ID error"
+  cat "$T28c/run.log"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""
