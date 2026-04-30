@@ -640,6 +640,29 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
   --format='value(timestamp,textPayload)'
 ```
 
+### Troubleshooting Cloud Run
+
+When something feels wrong (a deploy looks successful but the app
+returns 500s, traffic seems to be on the wrong revision, the
+placeholder `hello` image is still serving), use the one-shot
+diagnostic instead of composing gcloud queries by hand:
+
+```bash
+./scripts/diagnose-cloudrun.sh --project=YOUR_PROJECT_ID
+```
+
+The script is read-only and prints five sections in one go: service
+summary (URL, latest-ready vs latest-created revision), traffic split
+with stale-revision markers, currently-serving image with placeholder
+detection, latest revision conditions (Ready / Active /
+ContainerHealthy), and the last 50 log lines. Paste the full output
+into a help channel and someone else can diagnose without a
+back-and-forth.
+
+The script never mutates state — no traffic updates, no deploys, no
+deletes. For remediation see `Rolling Back` below or
+`docs/PATTERN-LIBRARY.md`.
+
 ### Rolling Back
 
 Cloud Run keeps every revision. To roll back:
