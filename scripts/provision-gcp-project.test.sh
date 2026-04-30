@@ -2218,6 +2218,39 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Assertion 5: activation fires even before the GCP_PROJECT_ID required-
+# check fails. This is the regression guard for Step 0's placement —
+# without it, a future refactor that pushes Step 0 below the input
+# validation would silently break the most common day-1 failure path
+# (user runs script without setting GCP_PROJECT_ID).
+T28c=$(mktemp -d -t aflowtest-XXXX)
+git init -q -b main "$T28c"
+mkdir -p "$T28c/scripts/hooks"
+echo '#!/usr/bin/env bash' > "$T28c/scripts/hooks/pre-push"
+chmod +x "$T28c/scripts/hooks/pre-push"
+
+set +e
+# Note: NO GCP_PROJECT_ID set — script must exit 1, but Step 0 should
+# still have run.
+PATH="$T28/bin:$PATH" \
+  bash -c "cd '$T28c' && '$SCRIPT'" > "$T28c/run.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "1" "$ec" "script exits 1 when GCP_PROJECT_ID is unset (precondition for Assertion 5)"
+
+hooks_path=$(git -C "$T28c" config --local --get core.hooksPath 2>/dev/null || echo "(unset)")
+assert_eq "scripts/hooks" "$hooks_path" "core.hooksPath set even when GCP_PROJECT_ID is unset (Step 0 fires before input validation)"
+
+if grep -q "\[hook\] Activated pre-push hook" "$T28c/run.log"; then
+  echo -e "  ${GREEN}✓${NC} activation message logged before exit (Step 0 ran before GCP_PROJECT_ID check)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected '[hook] Activated' before the GCP_PROJECT_ID error"
+  cat "$T28c/run.log"
+  FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────
 
 echo ""

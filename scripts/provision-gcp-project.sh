@@ -141,6 +141,30 @@ retry_eventual_consistency() {
   return 1
 }
 
+# ── Step 0: Activate the in-repo pre-push hook ──────────────────────────
+#
+# `core.hooksPath` is per-clone, not versioned with the repo. Without
+# this, the working pre-push hook at `scripts/hooks/pre-push` is dormant
+# on every fresh clone — `git push` skips lint and tests silently. The
+# CLAUDE.md rule "Never use `git push --no-verify`" is unenforceable
+# when there is no hook to skip.
+#
+# Run this BEFORE arg-parsing, input validation, and any GCP call so
+# that a partial run — including the most common day-1 failure path,
+# `provision-gcp-project.sh` invoked without GCP_PROJECT_ID set — still
+# leaves the quality gate active. Idempotent: no-op when already set.
+# Uses --local so a user's global hooksPath (e.g. for husky) is
+# overridden only inside this repo. See #77.
+
+if [[ -d .git ]] && [[ -f scripts/hooks/pre-push ]]; then
+  current_hooks_path="$(git config --local --get core.hooksPath 2>/dev/null || true)"
+  if [[ "$current_hooks_path" != "scripts/hooks" ]]; then
+    git config --local core.hooksPath scripts/hooks
+    echo "[hook] Activated pre-push hook (lint + tests will run before every push)"
+    echo ""
+  fi
+fi
+
 CREATE_PROJECT=false
 WITH_SA_KEY=false
 
@@ -171,28 +195,6 @@ echo "  Repo:     $ARTIFACT_REPO"
 echo "  Create:   $CREATE_PROJECT"
 echo "  SA key:   $WITH_SA_KEY"
 echo ""
-
-# ── Step 0: Activate the in-repo pre-push hook ──────────────────────────
-#
-# `core.hooksPath` is per-clone, not versioned with the repo. Without
-# this, the working pre-push hook at `scripts/hooks/pre-push` is dormant
-# on every fresh clone — `git push` skips lint and tests silently. The
-# CLAUDE.md rule "Never use `git push --no-verify`" is unenforceable
-# when there is no hook to skip.
-#
-# Run this BEFORE any failable GCP call so even a partial provisioner
-# run leaves the quality gate active. Idempotent: no-op when already
-# set. Uses --local so a user's global hooksPath (e.g. for husky) is
-# overridden only inside this repo. See #77.
-
-if [[ -d .git ]] && [[ -f scripts/hooks/pre-push ]]; then
-  current_hooks_path="$(git config --local --get core.hooksPath 2>/dev/null || true)"
-  if [[ "$current_hooks_path" != "scripts/hooks" ]]; then
-    git config --local core.hooksPath scripts/hooks
-    echo "[hook] Activated pre-push hook (lint + tests will run before every push)"
-    echo ""
-  fi
-fi
 
 # ── Step 1: Create project (optional) ────────────────────────────────────
 
