@@ -174,6 +174,157 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# ── Test 5: Self-heal — personal account active, env var unset ─────────
+# The downstream's #85 failure mode: user runs setup-solo-mode.sh
+# mid-session, env var doesn't propagate to subprocesses, but the
+# keyring shows them on a personal account. Hook must respect that
+# and not flip them to a bot.
+
+echo ""
+echo "Test 5: personal account active + AGILE_FLOW_SOLO_MODE unset → no switch"
+
+T5=$(new_tmp)
+make_gh_stub "$T5" "tck517"
+
+input='{"tool_name":"Bash","tool_input":{"command":"gh pr create --title foo"}}'
+
+set +e
+PATH="$T5/bin:$PATH" \
+  AGILE_FLOW_WORKER_ACCOUNT="va-worker" \
+  AGILE_FLOW_REVIEWER_ACCOUNT="va-reviewer" \
+  bash "$HOOK" <<< "$input" > "$T5/stdout.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "exit 0 (self-heal exits cleanly)"
+
+if [[ -f "$T5/gh.log" ]] && grep -q "auth switch" "$T5/gh.log"; then
+  echo -e "  ${RED}✗${NC} gh auth switch was called — self-heal failed to short-circuit"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} no gh auth switch attempted (self-heal respected personal account)"
+  PASS=$((PASS + 1))
+fi
+
+# Stderr should explain why the switch was skipped, so the user knows
+# what state they're in.
+if grep -q "not a configured bot" "$T5/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} stderr explains why switch was skipped"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected stderr message about non-bot account"
+  FAIL=$((FAIL + 1))
+fi
+
+# ── Test 6: Self-heal — personal account active, env var explicitly false
+# Defends against shells that set AGILE_FLOW_SOLO_MODE to something
+# other than "true" (e.g. "false", "0"). The keyring check should still
+# fire and the user should still not be flipped to a bot.
+
+echo ""
+echo "Test 6: personal account active + AGILE_FLOW_SOLO_MODE=false → no switch"
+
+T6=$(new_tmp)
+make_gh_stub "$T6" "tck517"
+
+input='{"tool_name":"Bash","tool_input":{"command":"gh pr create --title foo"}}'
+
+set +e
+PATH="$T6/bin:$PATH" \
+  AGILE_FLOW_SOLO_MODE=false \
+  AGILE_FLOW_WORKER_ACCOUNT="va-worker" \
+  AGILE_FLOW_REVIEWER_ACCOUNT="va-reviewer" \
+  bash "$HOOK" <<< "$input" > "$T6/stdout.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "exit 0"
+
+if [[ -f "$T6/gh.log" ]] && grep -q "auth switch" "$T6/gh.log"; then
+  echo -e "  ${RED}✗${NC} gh auth switch was called — self-heal failed under SOLO_MODE=false"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} no gh auth switch attempted under SOLO_MODE=false (keyring still respected)"
+  PASS=$((PASS + 1))
+fi
+
+# ── Test 7: Self-heal does NOT fire when active account IS a bot ────────
+# Multi-bot mode regression guard. va-worker active + gh pr review → must
+# still switch to va-reviewer.
+
+echo ""
+echo "Test 7: va-worker active + gh pr review → switch to va-reviewer"
+
+T7=$(new_tmp)
+make_gh_stub "$T7" "va-worker"
+
+input='{"tool_name":"Bash","tool_input":{"command":"gh pr review 123 --approve"}}'
+
+set +e
+PATH="$T7/bin:$PATH" \
+  AGILE_FLOW_WORKER_ACCOUNT="va-worker" \
+  AGILE_FLOW_REVIEWER_ACCOUNT="va-reviewer" \
+  bash "$HOOK" <<< "$input" > "$T7/stdout.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "exit 0"
+
+if [[ -f "$T7/gh.log" ]] && grep -q "auth switch --user va-reviewer" "$T7/gh.log"; then
+  echo -e "  ${GREEN}✓${NC} gh auth switch --user va-reviewer was called (multi-bot still works)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected switch to va-reviewer for gh pr review"
+  FAIL=$((FAIL + 1))
+fi
+
+# ── Test 8: Fail-open when gh auth status returns no active account ─────
+# If the parse yields an empty current_account, the self-heal check
+# skips (since -n "" is false) and existing logic continues. The
+# existing gh auth switch attempt will then surface the actual auth
+# error — better than blocking the tool call from this hook.
+
+echo ""
+echo "Test 8: empty active account → self-heal does NOT short-circuit"
+
+T8=$(new_tmp)
+mkdir -p "$T8/bin"
+# gh stub that returns empty `auth status` output (no Active account line).
+cat > "$T8/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T8/gh.log"
+case "\$1 \$2" in
+  "auth status") echo ""; exit 0 ;;
+  "auth switch") echo "switched"; exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T8/bin/gh"
+
+input='{"tool_name":"Bash","tool_input":{"command":"gh pr create --title foo"}}'
+
+set +e
+PATH="$T8/bin:$PATH" \
+  AGILE_FLOW_WORKER_ACCOUNT="va-worker" \
+  AGILE_FLOW_REVIEWER_ACCOUNT="va-reviewer" \
+  bash "$HOOK" <<< "$input" > "$T8/stdout.log" 2>&1
+ec=$?
+set -e
+
+# Empty current_account → self-heal block's [[ -n "$current_account" ]]
+# is false → falls through. Then the switch block compares "" to
+# "va-worker", attempts the switch, the stub returns success → exit 0.
+assert_eq "0" "$ec" "exit 0 (existing logic ran, stub auth-switch succeeded)"
+
+# Confirm the self-heal stderr message did NOT fire.
+if grep -q "not a configured bot" "$T8/stdout.log"; then
+  echo -e "  ${RED}✗${NC} self-heal fired with empty current_account (should fail-open)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} self-heal did NOT fire on empty current_account (fail-open)"
+  PASS=$((PASS + 1))
+fi
+
 # ── Summary ─────────────────────────────────────────────────────────────
 
 echo ""
