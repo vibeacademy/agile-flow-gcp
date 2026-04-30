@@ -123,15 +123,18 @@ jobs:
           # does — the asymmetry is easy to miss). Without this flag,
           # Cloud Run uses the legacy Compute Engine default SA at runtime,
           # which has none of the roles we provisioned (e.g. secretAccessor).
-          # --traffic=latest=100 routes all production traffic to the new
-          # revision after deploy. Without it, deploy-cloudrun@v2 leaves the
-          # existing traffic split intact — fine when traffic was already
-          # 100% to the previous latest, but a silent trap when the service
-          # was pre-created with a placeholder revision (Step 5.8 in the
-          # provisioner) that gcloud pinned 100% to. Without this flag, every
-          # deploy after the first leaves the placeholder serving traffic
-          # while the new revision sits at 0%. Symptom: green CI, service URL
-          # serves "Hello from Cloud Run!" forever. See #61.
+          # Traffic shift to the new revision happens in the follow-up
+          # step (Route traffic to latest revision) via
+          # `gcloud run services update-traffic --to-latest`. `gcloud
+          # run deploy` does NOT accept --traffic; passing it here fails
+          # the deploy with `unrecognized arguments: --traffic`. Without
+          # an explicit shift, deploy-cloudrun@v2 leaves the existing
+          # split intact — fine when traffic was already 100% to the
+          # previous latest, but a silent trap when the service was
+          # pre-created with a placeholder revision (Step 5.8 in the
+          # provisioner) that gcloud pinned 100% to. Symptom of getting
+          # this wrong: green CI, service URL serves "Hello from Cloud
+          # Run!" forever. See #61 / #76.
           flags: |
             --service-account=${{ secrets.GCP_SERVICE_ACCOUNT }}
             --port=8080
@@ -140,7 +143,6 @@ jobs:
             --min-instances=0
             --max-instances=10
             --allow-unauthenticated
-            --traffic=latest=100
           # DATABASE_URL is set as a plain env var (not a Secret Manager
           # mount) so production and preview agree on the env-var TYPE. The
           # two workflows target the same Cloud Run service; Cloud Run
@@ -158,6 +160,19 @@ jobs:
           env_vars: |
             ENVIRONMENT=production
             DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL }}
+
+      - name: Route traffic to latest revision
+        if: steps.check_secrets.outputs.skip != 'true'
+        run: |
+          # Migrate 100% of traffic to the just-deployed revision.
+          # Idempotent — when traffic is already on latest, this is a
+          # no-op. Required because the provisioner's Step 5.8 pre-creates
+          # the service with a placeholder revision pinned at 100%, and
+          # `gcloud run deploy` doesn't migrate traffic away from an
+          # existing pin. See #61 / #76.
+          gcloud run services update-traffic "${{ env.SERVICE_NAME }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --to-latest
 
       - name: Show deployed URL
         if: steps.check_secrets.outputs.skip != 'true'

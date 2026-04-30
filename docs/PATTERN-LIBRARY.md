@@ -1079,9 +1079,13 @@ revision. But once *any* explicit traffic split exists on the service,
 deploys preserve that split — even when the latest revision is
 healthier than what's currently serving.
 
-**Pattern:** When a deploy is meant to shift production to the new
-revision, pass `--traffic=latest=100` (or run
-`gcloud run services update-traffic --to-latest` post-deploy):
+**Pattern:** Use the canonical two-step pattern: deploy the revision,
+then run `gcloud run services update-traffic --to-latest` as a
+follow-up step. **`gcloud run deploy` does NOT accept `--traffic`** —
+the only traffic-related flags on `deploy` are `--no-traffic` and
+`--tag`. Passing `--traffic=latest=100` to `deploy-cloudrun@v2` (which
+forwards `flags:` verbatim to `gcloud run deploy`) fails with
+`unrecognized arguments: --traffic`.
 
 ```yaml
 # In .github/workflows/deploy.yml
@@ -1091,23 +1095,31 @@ revision, pass `--traffic=latest=100` (or run
     service: agile-flow-app
     image: ${{ env.IMAGE }}
     region: us-central1
-    flags: --traffic=latest=100
+    # Note: no --traffic flag here. `gcloud run deploy` rejects it.
+
+- name: Route traffic to latest revision
+  run: |
+    gcloud run services update-traffic agile-flow-app \
+      --region=us-central1 \
+      --to-latest
 ```
 
-```bash
-# Or post-deploy, equivalent end state:
-gcloud run services update-traffic agile-flow-app \
-  --region=us-central1 \
-  --to-latest
-```
+`update-traffic --to-latest` is idempotent: when traffic is already on
+latest, it's a no-op. So the follow-up step is safe to run on every
+deploy without conditional logic.
 
 Preview revisions intentionally remain `--no-traffic --tag=pr-N` and
-are unaffected — the flag only applies to the production deploy job.
+are unaffected — only the production deploy job needs the traffic
+shift.
 
 Surfaced in the 2026-04-29 dry-run on a fresh fork: the placeholder
 service from Step 5.8 of the provision script absorbed 100% of
 traffic; six green CI runs later, the URL was still serving "Hello
-from Cloud Run!". Fixed in #66.
+from Cloud Run!". First fix attempt in #66 used `--traffic=latest=100`
+on the deploy step, which appeared to work in code review but never
+ran end-to-end; the 2026-04-30 dry-run on a fresh fork surfaced that
+the flag is invalid on `gcloud run deploy`. Replaced with the
+two-step pattern in #76.
 
 ---
 
@@ -1156,10 +1168,11 @@ inject the per-PR Neon branch URL).
     service: agile-flow-app
     image: ${{ env.IMAGE }}
     region: us-central1
-    flags: --traffic=latest=100
     env_vars: |
       ENVIRONMENT=production
       DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL }}
+# (Production traffic shift to the new revision happens in a separate
+# `gcloud run services update-traffic --to-latest` step — see Pattern #31.)
 ```
 
 ```yaml
