@@ -838,6 +838,12 @@ if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
     fi
     if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
       push_secret "NEON_PARENT_BRANCH" "$NEON_BRANCH_NAME"
+      # Same Neon pooled URI Step 5.7 wrote into the `database-url`
+      # Secret Manager secret. deploy.yml reads this in two places:
+      # the Alembic migration step (line 93) and the Cloud Run runtime
+      # env var (line 160, post-#68). Without it both fail silently —
+      # see #71.
+      push_secret "PRODUCTION_DATABASE_URL" "$pooled_uri"
     fi
 
     # SA key is intentionally NOT auto-pushed even when --with-sa-key
@@ -872,6 +878,7 @@ if [[ "$GH_SECRETS_PUSHED" == "true" ]]; then
   fi
   if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
     echo "   - NEON_PARENT_BRANCH"
+    echo "   - PRODUCTION_DATABASE_URL"
   fi
   echo ""
   if [[ "$WITH_SA_KEY" == "true" ]]; then
@@ -911,7 +918,7 @@ if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
     echo "   gh secret set NEON_API_KEY    --repo $GITHUB_REPOSITORY --body \"\$NEON_API_KEY\""
     echo "   gh secret set NEON_PROJECT_ID --repo $GITHUB_REPOSITORY --body \"\$NEON_PROJECT_ID\""
     echo ""
-    echo "   (NEON_PARENT_BRANCH was set automatically above.)"
+    echo "   (NEON_PARENT_BRANCH and PRODUCTION_DATABASE_URL were set automatically above.)"
     echo "   The 'database-url' Secret Manager secret was created automatically"
     echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
   else
@@ -923,10 +930,13 @@ if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
     echo "   The 'database-url' Secret Manager secret was created automatically"
     echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
     echo ""
-    echo "3. Set NEON_PARENT_BRANCH on the participant's fork so per-PR previews"
-    echo "   inherit from this attendee's branch (otherwise they branch from main):"
+    echo "3. Set NEON_PARENT_BRANCH and PRODUCTION_DATABASE_URL on the"
+    echo "   participant's fork so production deploys can run migrations and"
+    echo "   per-PR previews inherit this attendee's branch:"
     echo ""
     echo "   NEON_PARENT_BRANCH     = $NEON_BRANCH_NAME"
+    echo "   PRODUCTION_DATABASE_URL = (the same value already in"
+    echo "                              the 'database-url' Secret Manager secret)"
   fi
   echo ""
   echo "4. (Optional) Set these repository variables (non-secret):"

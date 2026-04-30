@@ -559,6 +559,11 @@ into the participant's fork after provisioning completes:
 - `GCP_SERVICE_ACCOUNT`
 - `GCP_WORKLOAD_IDENTITY_PROVIDER` (when WIF was set up in Step 5.5)
 - `NEON_PARENT_BRANCH` (when Neon was provisioned in Step 5.7)
+- `PRODUCTION_DATABASE_URL` (when Neon was provisioned in Step 5.7) — same
+  pooled URI written to the `database-url` Secret Manager secret. Required
+  by `deploy.yml` for the Alembic migration step and the Cloud Run runtime
+  env var. Without it, production starts with `DATABASE_URL=""` and 500s on
+  the first DB query.
 
 This eliminates the most common day-1 failure: facilitators copy SA
 emails or WIF provider paths between projects by hand and get them
