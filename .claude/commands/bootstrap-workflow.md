@@ -33,48 +33,62 @@ Verify or create project board with columns:
 - **In Review** - PR created, awaiting review
 - **Done** - Merged and complete
 
-### 1.5. Enable Auto-Move-to-Done Workflow (manual)
+### 2. Enable Project Board Workflows (manual UI — REQUIRED before creating issues)
 
-After the project board exists, enable the built-in
-**"Item closed → Status: Done"** workflow so issues auto-move to
-Done when their PR merges (PR body has `Closes #N` → GitHub
-auto-closes the issue → built-in workflow bumps the Status column).
+> **Order matters.** Enable both built-in workflows **before** creating
+> any issues in step 4. Both workflows apply only to issues created
+> from the moment they're enabled forward — they do **not** backfill
+> existing issues. Doing this in the wrong order strands every issue
+> created before this step. (#120, #86)
 
-Without this step, every merged PR leaves its issue stuck in **In
-Review** until a human manually drags it to Done — the framework's
-"only humans move to Done" rule is honored, but the human has to
-remember to do it on every merge. Enabling this workflow once
-per-project removes that per-merge step.
+Two workflows to enable in the same UI panel:
+
+- **Auto-add to project** — automatically adds new repo issues to the
+  board's `Backlog` column. Without this, every issue requires a
+  manual board-add for the lifetime of the project.
+- **Item closed → Status: Done** — auto-moves an issue to `Done` when
+  its PR merges (PR body has `Closes #N` → GitHub auto-closes the
+  issue → workflow bumps the Status column). Without this, every
+  merged PR leaves its issue stuck in `In Review` until a human
+  manually drags it. The framework's "only humans move to Done" rule
+  is honored either way; this just removes the per-merge step.
 
 **Manual UI toggle (recommended):**
 
 1. Open the project: `https://github.com/orgs/<org>/projects/<N>`
    (or the user-scoped equivalent)
 2. Click **⋯** (top-right) → **Workflows**
-3. Find **"Item closed"**
-4. Set **When** = `Issue is closed`
-5. Set **Set Status** = `Done`
-6. Toggle **Enabled**
-7. Click **Save and turn on workflow**
+3. **Enable Auto-add to project:**
+   - Find **"Auto-add to project"**
+   - Set **Repository** = the repo this board serves
+   - Set **Filter** = `is:issue` (or leave empty to include PRs too)
+   - Toggle **Enabled**
+   - Click **Save and turn on workflow**
+4. **Enable Item closed → Done:**
+   - Find **"Item closed"**
+   - Set **When** = `Issue is closed`
+   - Set **Set Status** = `Done`
+   - Toggle **Enabled**
+   - Click **Save and turn on workflow**
 
-**Why not via API:** GitHub's GraphQL exposes
-`projectV2.workflows` for read and `deleteProjectV2Workflow` for
-removal, but no `createProjectV2Workflow` or
-`updateProjectV2Workflow` mutation exists. Built-in workflows can
-only be configured via the web UI. See #86 for the API research.
+**Why not via API:** GitHub's GraphQL exposes `projectV2.workflows`
+for read and `deleteProjectV2Workflow` for removal, but no
+`createProjectV2Workflow` or `updateProjectV2Workflow` mutation
+exists. Built-in workflows can only be configured via the web UI.
+See #86 for the API research.
 
-If the user can't access the UI right now, document that the toggle
-is pending and set a follow-up reminder; the framework still works
-without it (just with manual board-moves on merge).
+If the user can't access the UI right now, document that the toggles
+are pending. Step 4 below will need the explicit backfill step for
+any issues created before this point.
 
-### 2. Branch Protection Configuration
+### 3. Branch Protection Configuration
 
 Verify or configure branch protection on `main`:
 - [ ] Require pull request reviews before merging
 - [ ] Require status checks to pass (if CI configured)
 - [ ] Do not allow bypassing the above settings
 
-### 3. Initial Backlog Creation
+### 4. Initial Backlog Creation
 
 Convert PRD features into GitHub issues following `docs/TICKET-FORMAT.md`:
 - Create epics for major feature areas (epics use Problem Statement + high-level scope)
@@ -87,14 +101,22 @@ Convert PRD features into GitHub issues following `docs/TICKET-FORMAT.md`:
 - Link issues to epics
 - Add priority labels (P0/P1/P2/P3)
 
-### 4. Ready Column Population
+> **Backfill check:** if any issues were created **before** step 2
+> (auto-add workflow enabled), they are NOT on the board. The
+> auto-add workflow does not backfill. Manually add them: open the
+> project's `Backlog` column, click the input row at the bottom of
+> the column, and paste each orphaned issue's URL. Confirm with
+> `/sprint-status` that all issues appear on the board before
+> proceeding.
+
+### 5. Ready Column Population
 
 Move the highest-priority, well-defined tickets to Ready:
 - Select 3-5 tickets for initial Ready column
 - Ensure they meet Definition of Ready
 - Add technical guidance and acceptance criteria
 
-### 5. CLAUDE.md Finalization
+### 6. CLAUDE.md Finalization
 
 Update CLAUDE.md with:
 - Project board URL
@@ -168,12 +190,19 @@ The workflow activation agent will:
    - Create columns if needed
    - Configure board settings
 
-3. **Configure Branch Protection**
+3. **Enable Project Board Workflows (REQUIRED before backlog creation)**
+   - Walk the user through the manual UI toggle for both built-in
+     workflows: "Auto-add to project" and "Item closed → Status: Done"
+   - Verify both are enabled before proceeding
+   - This MUST happen before issues are created — neither workflow
+     backfills, so issues created earlier are stranded
+
+4. **Configure Branch Protection**
    - Check current settings
    - Apply protection rules
    - Verify configuration
 
-4. **Generate Backlog**
+5. **Generate Backlog**
    - Read `docs/TICKET-FORMAT.md` for the canonical ticket format
    - Read PRD features from `docs/PRODUCT-REQUIREMENTS.md`
    - Read `docs/TECHNICAL-ARCHITECTURE.md` for Environment Context content
@@ -182,13 +211,15 @@ The workflow activation agent will:
    - Create feature issues with all 4 Power Sections populated
    - Set initial priorities (P0-P3)
    - Self-check: before creating each issue, verify it contains sections A through D
+   - Backfill any issues created before step 3: paste their URLs into
+     the Backlog column's add-item input row
 
-5. **Populate Ready Column**
+6. **Populate Ready Column**
    - Select MVP tickets
    - Ensure Definition of Ready met
    - Move to Ready column
 
-6. **Update Configuration**
+7. **Update Configuration**
    - Add URLs to CLAUDE.md
    - Verify agent configs reference correct board
 
