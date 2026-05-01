@@ -217,22 +217,42 @@ echo ""
 # In solo mode, ANY of these env vars override `gh auth switch` silently.
 # Detection is from the current shell environment (what gh sees right now)
 # AND from the shell rc file (so the user knows what to remove permanently).
+#
+# Tracked vars (#102 generalization): the broader category is "env-var
+# token that shadows the keyring." `gh` recognizes GITHUB_TOKEN, GH_TOKEN,
+# GH_ENTERPRISE_TOKEN, and the GITHUB_PERSONAL_ACCESS_TOKEN* family.
+# All four belong to the same class.
 token_env_vars=()
 while IFS= read -r line; do
     [ -n "$line" ] && token_env_vars+=("$line")
-done < <(env | grep -E "^(GITHUB_PERSONAL_ACCESS_TOKEN|GH_TOKEN)" | cut -d= -f1 || true)
+done < <(env | grep -E "^(GITHUB_PERSONAL_ACCESS_TOKEN|GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)" | cut -d= -f1 || true)
 
 token_rc_lines=()
 if [ -f "$profile" ]; then
     while IFS= read -r line; do
         [ -n "$line" ] && token_rc_lines+=("$line")
-    done < <(grep -nE "^(export\s+)?GITHUB_PERSONAL_ACCESS_TOKEN|^(export\s+)?GH_TOKEN|^set -Ux\s+GITHUB_PERSONAL_ACCESS_TOKEN|^set -Ux\s+GH_TOKEN" "$profile" 2>/dev/null || true)
+    done < <(grep -nE "^(export\s+)?(GITHUB_PERSONAL_ACCESS_TOKEN|GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)|^set -Ux\s+(GITHUB_PERSONAL_ACCESS_TOKEN|GH_TOKEN|GITHUB_TOKEN|GH_ENTERPRISE_TOKEN)" "$profile" 2>/dev/null || true)
 fi
 
 env_count=${#token_env_vars[@]}
 rc_count=${#token_rc_lines[@]}
+
+# Codespaces auto-injects GITHUB_TOKEN. If that's the ONLY token var
+# present, treat it as expected/informational rather than a warning —
+# noise is the enemy of attendees finding the real signal. Step 4
+# handles the scope-refresh workaround for the Codespaces case.
+expected_codespace_only=false
+if [ -n "${CODESPACES:-}" ] \
+   && [ "$env_count" -eq 1 ] \
+   && [ "${token_env_vars[0]}" = "GITHUB_TOKEN" ] \
+   && [ "$rc_count" -eq 0 ]; then
+    expected_codespace_only=true
+fi
+
 if [ "$env_count" -eq 0 ] && [ "$rc_count" -eq 0 ]; then
     print_success "No token env vars detected (gh keyring is the source of truth)"
+elif [ "$expected_codespace_only" = "true" ]; then
+    print_info "Codespaces GITHUB_TOKEN detected (expected). Step 4 will check its scopes."
 else
     print_warning "Found token env vars that override gh auth switch:"
     echo ""
@@ -278,11 +298,41 @@ done
 
 if [ ${#missing_scopes[@]} -eq 0 ]; then
     print_success "All required scopes present (${required_scopes[*]})"
+elif [ -n "${CODESPACES:-}" ]; then
+    # Codespaces (#102): the auto-injected GITHUB_TOKEN is a user-to-server
+    # token (`ghu_` prefix) that gh does NOT own. `gh auth refresh` against
+    # it fails with "The value of the GITHUB_TOKEN environment variable is
+    # being used for authentication. To refresh credentials stored in
+    # GitHub CLI, first clear the value from the environment." This is true
+    # regardless of TTY presence (#97's IS_INTERACTIVE guard doesn't help
+    # here because postCreateCommand may have a TTY but the refresh still
+    # fails on the same error).
+    #
+    # The supported workshop path is to configure a GH_TOKEN Codespaces
+    # user secret with a fine-grained PAT carrying the required scopes.
+    # gh prefers GH_TOKEN over GITHUB_TOKEN, so once that secret is set
+    # and the Codespace is rebuilt, scopes are satisfied without any
+    # refresh call.
+    print_warning "Missing scopes: ${missing_scopes[*]}"
+    print_warning "Codespaces detected — GITHUB_TOKEN cannot be refreshed (gh does not own it)."
+    echo ""
+    print_info "To fix: configure a GH_TOKEN Codespaces user secret with the required scopes."
+    print_info "  1. Generate a fine-grained PAT at https://github.com/settings/tokens?type=beta"
+    print_info "     Required scopes: ${required_scopes[*]}"
+    print_info "  2. Save as a Codespaces user secret named GH_TOKEN at"
+    print_info "     https://github.com/settings/codespaces"
+    print_info "  3. Grant the secret access to this fork"
+    print_info "  4. Rebuild the Codespace (Command Palette → Codespaces: Rebuild Container)"
+    echo ""
+    print_info "GH_TOKEN takes precedence over GITHUB_TOKEN, so gh will use the"
+    print_info "broader-scoped token after rebuild without further changes."
+    echo ""
+    print_warning "Continuing — uv sync and the rest of postCreate should still run."
 elif [ "$IS_INTERACTIVE" != "true" ]; then
-    # Non-interactive (Codespace postCreateCommand, CI, piped invocation):
-    # `gh auth refresh` would hang waiting for browser OAuth. WARN and
-    # surface the manual command for the user to run from their first
-    # interactive terminal. See #97.
+    # Non-interactive non-Codespace (CI, piped invocation): `gh auth
+    # refresh` would hang waiting for browser OAuth. WARN and surface the
+    # manual command for the user to run from their first interactive
+    # terminal. See #97.
     print_warning "Missing scopes: ${missing_scopes[*]}"
     print_warning "Skipping refresh (non-interactive context — would block on browser OAuth)"
     print_info "Run manually after this script finishes:"

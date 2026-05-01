@@ -390,6 +390,97 @@ set -e
 assert_eq "1" "$ec" "exit 1 when no active gh account"
 assert_contains "No active gh account" "$T8/run.log" "names the issue"
 
+# ── Test 9: Codespaces + missing scopes → WARN+continue, no refresh ──
+# #102 fix: when CODESPACES=true is set, the auto-injected GITHUB_TOKEN
+# cannot be refreshed by gh (gh does not own it). The script must
+# detect Codespaces specifically (not infer from TTY) and exit Step 4
+# cleanly without calling gh auth refresh, regardless of whether stdin
+# has a TTY. Also: the script must continue (not exit 1) so downstream
+# postCreateCommand steps (uv sync) still run.
+
+echo ""
+echo "Test 9: Codespaces + missing scopes → WARN+continue (no refresh attempted)"
+
+T9=$(STUB_INITIAL_ACCOUNT=alice new_sandbox)
+make_gh_stub "$T9"
+
+set +e
+run_script "$T9" \
+    CODESPACES=true \
+    GITHUB_TOKEN="ghu_fake1234567890" \
+    STUB_TOKEN_SCOPES="repo, workflow" \
+    STUB_API_ADMIN="true" \
+    > "$T9/run.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "exit 0 (continues so uv sync can run)"
+assert_contains "Codespaces detected" "$T9/run.log" "names Codespaces context"
+assert_contains "GITHUB_TOKEN cannot be refreshed" "$T9/run.log" "explains why refresh is skipped"
+assert_contains "GH_TOKEN Codespaces user secret" "$T9/run.log" "names the supported workaround"
+assert_contains "fine-grained PAT" "$T9/run.log" "tells user what kind of PAT to generate"
+assert_contains "Rebuild the Codespace" "$T9/run.log" "names the apply step (rebuild)"
+# Critical: gh auth refresh must NOT have been called
+if ! grep -q "auth refresh" "$T9/gh.log"; then
+    echo -e "  ${GREEN}OK${NC} did NOT call gh auth refresh in Codespaces context"
+    PASS=$((PASS + 1))
+else
+    echo -e "  ${RED}FAIL${NC} script called gh auth refresh in Codespaces (would error against GITHUB_TOKEN)"
+    cat "$T9/gh.log"
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Test 10: Codespaces + GITHUB_TOKEN present → audit treats as expected
+# Step 3 should NOT scare-warn the user about the auto-injected
+# GITHUB_TOKEN in Codespaces. That's expected/normal. The "Found token
+# env vars that override gh auth switch" warning belongs to setups
+# where the user accidentally exported a token in their shell rc.
+
+echo ""
+echo "Test 10: Codespaces + only GITHUB_TOKEN set → Step 3 informational, not warning"
+
+T10=$(STUB_INITIAL_ACCOUNT=alice new_sandbox)
+make_gh_stub "$T10"
+
+set +e
+run_script "$T10" \
+    CODESPACES=true \
+    GITHUB_TOKEN="ghu_fake1234567890" \
+    STUB_TOKEN_SCOPES="repo, project, workflow, read:project" \
+    STUB_API_ADMIN="true" \
+    > "$T10/run.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "exit 0 on Codespaces happy path"
+assert_contains "Codespaces GITHUB_TOKEN detected (expected)" "$T10/run.log" "informational, not warning"
+assert_not_contains "Found token env vars that override" "$T10/run.log" "no scare-warning for expected Codespaces token"
+
+# ── Test 11: non-Codespace + GITHUB_TOKEN in env → still warns (not silent)
+# Outside Codespaces, GITHUB_TOKEN in the shell env IS a real problem —
+# the user has a stray token export. Step 3 must surface that. This
+# guards against the Codespaces special-case being too permissive.
+
+echo ""
+echo "Test 11: non-Codespace + GITHUB_TOKEN env var → audit warns"
+
+T11=$(STUB_INITIAL_ACCOUNT=alice new_sandbox)
+make_gh_stub "$T11"
+
+set +e
+run_script "$T11" \
+    GITHUB_TOKEN="ghp_fake1234567890" \
+    STUB_TOKEN_SCOPES="repo, project, workflow, read:project" \
+    STUB_API_ADMIN="true" \
+    > "$T11/run.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "exit 0 (continues with warning)"
+assert_contains "Found token env vars" "$T11/run.log" "GITHUB_TOKEN audit fires outside Codespaces"
+assert_contains "GITHUB_TOKEN" "$T11/run.log" "names the offending var"
+assert_not_contains "GITHUB_TOKEN detected (expected)" "$T11/run.log" "does not falsely treat as expected outside Codespaces"
+
 # ── Summary ──────────────────────────────────────────────────────────
 
 echo ""
