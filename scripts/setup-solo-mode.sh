@@ -16,6 +16,7 @@
 #     (repo, project, workflow, read:project) and refreshes if not.
 #   ✓ Activates the in-repo pre-push hook (`core.hooksPath`).
 #   ✓ Verifies you have admin access on the current fork.
+#   ✓ Creates the canonical label set (P0/P1/P2/P3/epic) on the fork.
 #
 #   ✗ Does NOT cache tokens to disk. Tokens stay in gh's keyring.
 #   ✗ Does NOT auto-modify your shell rc to remove tokens — surfaces
@@ -183,9 +184,9 @@ if [ ! -t 0 ]; then
 fi
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 1/8: Detect shell + show current state
+#  Step 1/9: Detect shell + show current state
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 1/8: Detect shell ---${NC}"
+echo -e "${CYAN}--- Step 1/9: Detect shell ---${NC}"
 echo ""
 
 profile=$(detect_shell_profile)
@@ -196,9 +197,9 @@ print_info "Active gh account: ${active_account:-(none detected)}"
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 2/8: Persist AGILE_FLOW_SOLO_MODE
+#  Step 2/9: Persist AGILE_FLOW_SOLO_MODE
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 2/8: Persist AGILE_FLOW_SOLO_MODE=true ---${NC}"
+echo -e "${CYAN}--- Step 2/9: Persist AGILE_FLOW_SOLO_MODE=true ---${NC}"
 echo ""
 
 if [ "${AGILE_FLOW_SOLO_MODE:-}" = "true" ] && grep -qE "(^export AGILE_FLOW_SOLO_MODE=|^set -Ux AGILE_FLOW_SOLO_MODE )" "$profile" 2>/dev/null; then
@@ -209,9 +210,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 3/8: Audit GITHUB_PERSONAL_ACCESS_TOKEN* env vars
+#  Step 3/9: Audit GITHUB_PERSONAL_ACCESS_TOKEN* env vars
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 3/8: Audit GITHUB_PERSONAL_ACCESS_TOKEN env vars ---${NC}"
+echo -e "${CYAN}--- Step 3/9: Audit GITHUB_PERSONAL_ACCESS_TOKEN env vars ---${NC}"
 echo ""
 
 # In solo mode, ANY of these env vars override `gh auth switch` silently.
@@ -280,9 +281,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 4/8: Verify scopes
+#  Step 4/9: Verify scopes
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 4/8: Verify gh token scopes ---${NC}"
+echo -e "${CYAN}--- Step 4/9: Verify gh token scopes ---${NC}"
 echo ""
 
 required_scopes=(repo project workflow read:project)
@@ -363,9 +364,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 5/8: Activate pre-push hook
+#  Step 5/9: Activate pre-push hook
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 5/8: Activate pre-push hook ---${NC}"
+echo -e "${CYAN}--- Step 5/9: Activate pre-push hook ---${NC}"
 echo ""
 
 if [ -f "scripts/hooks/pre-push" ]; then
@@ -382,9 +383,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 6/8: Verify admin access on this fork
+#  Step 6/9: Verify admin access on this fork
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 6/8: Verify admin access on this fork ---${NC}"
+echo -e "${CYAN}--- Step 6/9: Verify admin access on this fork ---${NC}"
 echo ""
 
 remote_url=$(git config --get remote.origin.url 2>/dev/null || true)
@@ -418,9 +419,39 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 7/8: Multi-bot env-var sanity check
+#  Step 7/9: Set up canonical labels (#112)
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 7/8: Multi-bot env-var sanity check ---${NC}"
+echo -e "${CYAN}--- Step 7/9: Set up canonical labels ---${NC}"
+echo ""
+
+# Labels require the same admin/write permission as Step 6 verifies,
+# so we co-locate them. fail-soft: setup-labels.sh exits 2 on missing
+# admin (per-label WARNs surface failures); the bootstrap continues
+# regardless. The framework's other outputs (env var, hook activation)
+# are still valuable when labels can't be reconciled.
+labels_script="$(dirname "$0")/setup-labels.sh"
+if [ -f "$labels_script" ]; then
+    if bash "$labels_script" 2>&1 | sed 's/^/    /'; then
+        # exit 0 from setup-labels.sh
+        :
+    else
+        labels_ec=$?
+        if [ "$labels_ec" = "2" ]; then
+            print_warning "Some labels could not be reconciled (likely missing admin/write)."
+            print_info "Re-run 'bash scripts/setup-labels.sh' from a session with admin to finish."
+        else
+            print_warning "setup-labels.sh exited with code ${labels_ec}; continuing."
+        fi
+    fi
+else
+    print_warning "scripts/setup-labels.sh not found; skipping canonical label setup."
+fi
+echo ""
+
+# ───────────────────────────────────────────────────────────────────
+#  Step 8/9: Multi-bot env-var sanity check
+# ───────────────────────────────────────────────────────────────────
+echo -e "${CYAN}--- Step 8/9: Multi-bot env-var sanity check ---${NC}"
 echo ""
 
 if [ -n "${AGILE_FLOW_WORKER_ACCOUNT:-}" ] || [ -n "${AGILE_FLOW_REVIEWER_ACCOUNT:-}" ]; then
@@ -436,9 +467,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 8/8: Done — restart prompt
+#  Step 9/9: Done — restart prompt
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 8/8: Done ---${NC}"
+echo -e "${CYAN}--- Step 9/9: Done ---${NC}"
 echo ""
 
 print_success "Solo mode is configured."
