@@ -116,16 +116,33 @@ Before running this phase, ensure you have:
 Before any board or ticket operations, verify the following. STOP and report
 to the user if any check fails — do not continue with partial tooling.
 
-1. **MCP GitHub server is reachable** — Attempt a GitHub MCP tool call (e.g.,
-   list repos). If the MCP server is not connected, STOP. Do not fall back to
-   CLI-only mode silently.
-2. **GitHub account is correct** — Run `gh auth status` and confirm the active
-   account matches the expected worker/bot account. If only a personal account
-   is active, STOP and instruct the user to run `scripts/ensure-github-account.sh`.
-3. **Claude hooks are registered** — Check that hook files referenced in
+1. **GitHub account is correct** — Run `gh auth status` and confirm the active
+   account is appropriate for the work being done.
+   - **Solo mode** (`AGILE_FLOW_SOLO_MODE=true`, the framework default per
+     CLAUDE.md and the Codespaces devcontainer): the participant's personal
+     account plays all roles — worker, reviewer, human merger. The
+     personal-account-only state is EXPECTED, not a failure.
+   - **Multi-bot mode**: verify the active account matches the configured
+     worker bot (`$AGILE_FLOW_WORKER_ACCOUNT`, default `va-worker`). If only
+     a personal account is active in multi-bot mode, STOP and instruct the
+     user to run `.claude/hooks/ensure-github-account.sh`.
+2. **GitHub access is reachable via `gh` CLI** — Confirm authentication works
+   with a quick read-only call (e.g., `gh repo view`, `gh issue list --limit 1`).
+   If gh fails, STOP. The framework uses `gh` as the primary GitHub mechanism
+   (per CLAUDE.md "Agents use the `gh` CLI for all GitHub operations"); an
+   MCP GitHub server is optional and not part of the default `.mcp.json`.
+3. **Token scopes sufficient for board operations** — Run the probe:
+   `gh api graphql -f query='{ viewer { projectsV2(first:1) { totalCount } } }'`
+   If this fails with `Resource not accessible by integration`, the active
+   token lacks the `project` scope. STOP with a clear remediation message:
+   in a Codespace, configure a `GH_TOKEN` Codespaces user secret with a
+   fine-grained PAT carrying `project`, `repo`, `workflow`, `read:org` scopes
+   (see the pre-workshop email or `agile-flow-meta:docs/workshops/`); on a
+   local clone, run `gh auth refresh -h github.com -s project,read:project`.
+4. **Claude hooks are registered** — Check that hook files referenced in
    `.claude/settings.local.json` exist and are executable. WARN if any hook is
    missing or not executable.
-4. **Project board is accessible** — Attempt to read the project board. If
+5. **Project board is accessible** — Attempt to read the project board. If
    access is denied or the board does not exist, STOP and report.
 
 ## Configuration Required
