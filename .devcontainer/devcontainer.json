@@ -59,7 +59,12 @@
   // GITHUB_TOKEN, so gh is already authenticated; setup-solo-mode.sh
   // does the rest (hooks path, scope check, admin verification). uv sync
   // installs Python deps so `uv run pytest` works on first command.
-  "postCreateCommand": "bash scripts/setup-solo-mode.sh && uv sync --extra dev",
+  //
+  // Use `;` (not `&&`) so a setup-solo-mode warning or non-fatal exit
+  // doesn't block uv sync. setup-solo-mode is advisory (audits state,
+  // persists an env var); uv sync is essential (without Python deps
+  // nothing runs). Don't gate the latter on the former. (#102 Fix C.)
+  "postCreateCommand": "bash scripts/setup-solo-mode.sh; uv sync --extra dev",
 
   // FastAPI dev server.
   "forwardPorts": [8080],
