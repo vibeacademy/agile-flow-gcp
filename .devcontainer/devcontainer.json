@@ -55,6 +55,22 @@
     "AGILE_FLOW_SOLO_MODE": "true"
   },
 
+  // Preinstall Claude Code in the Codespace's web VS Code (#103). The
+  // extension ships the `claude` binary AND the in-editor sidebar UI;
+  // attendees open the integrated terminal and run `claude` directly,
+  // no manual install. Without this, attendees opening a fresh
+  // Codespace would have no path to start an agent session — every
+  // bootstrap-phase docs step assumes a working `claude` invocation.
+  // First-run prompts attendees to authenticate via browser flow
+  // against their Anthropic account (separate from gh/gcloud auths).
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code"
+      ]
+    }
+  },
+
   // Run the solo-mode bootstrap automatically. Codespaces auto-injects
   // GITHUB_TOKEN, so gh is already authenticated; setup-solo-mode.sh
   // does the rest (hooks path, scope check, admin verification). uv sync

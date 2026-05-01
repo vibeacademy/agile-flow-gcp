@@ -66,7 +66,12 @@ for you, identically across all attendees.
 2. Wait ~60 seconds for the container to provision.
 3. Run `gcloud auth login` in the integrated terminal to authenticate
    with GCP (browser OAuth flow).
-4. Skip to **Step 2: Set Up GitHub Access** below — except gh is
+4. The Claude Code extension is preinstalled. To start your first
+   agent session, open the integrated terminal (`Ctrl+` `) and run
+   `claude`. On first run you'll be prompted to authenticate via a
+   browser flow — this is your **Anthropic account**, separate from
+   the GitHub and Google Cloud auths above.
+5. Skip to **Step 2: Set Up GitHub Access** below — except gh is
    already authenticated, so you can skip Step 2 entirely.
 
 The container runs `scripts/setup-solo-mode.sh` automatically as
