@@ -936,6 +936,19 @@ if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
       # see #71.
       push_secret "PRODUCTION_DATABASE_URL" "$pooled_uri"
     fi
+    # Per-PR Neon branching (preview-deploy.yml) requires NEON_API_KEY +
+    # NEON_PROJECT_ID at the attendee repo level. Under the May 2026
+    # per-attendee Neon project model (#108), NEON_PROJECT_ID is per-row;
+    # under the legacy cohort-shared model it's the cohort env var.
+    # Either way, push them when set so preview deploys don't silently
+    # fall through to empty DATABASE_URL → Cloud Run startup crash. See
+    # #130 for the full failure-mode trace from the 2026-05-02 dry-run.
+    if [[ -n "${NEON_API_KEY:-}" ]]; then
+      push_secret "NEON_API_KEY" "$NEON_API_KEY"
+    fi
+    if [[ -n "${NEON_PROJECT_ID:-}" ]]; then
+      push_secret "NEON_PROJECT_ID" "$NEON_PROJECT_ID"
+    fi
 
     # SA key is intentionally NOT auto-pushed even when --with-sa-key
     # was used — it's a long-lived credential that should be uploaded
@@ -971,6 +984,12 @@ if [[ "$GH_SECRETS_PUSHED" == "true" ]]; then
     echo "   - NEON_PARENT_BRANCH"
     echo "   - PRODUCTION_DATABASE_URL"
   fi
+  if [[ -n "${NEON_API_KEY:-}" ]]; then
+    echo "   - NEON_API_KEY"
+  fi
+  if [[ -n "${NEON_PROJECT_ID:-}" ]]; then
+    echo "   - NEON_PROJECT_ID"
+  fi
   echo ""
   if [[ "$WITH_SA_KEY" == "true" ]]; then
     echo "   You ran with --with-sa-key. Upload the SA key file deliberately:"
@@ -999,19 +1018,26 @@ if [[ "${NEON_BRANCH_PROVISIONED:-false}" == "true" ]]; then
   # Step 5.7 already created the Neon branch and database-url secret.
   # Tell the participant what to set on their fork; no manual gcloud.
   if [[ "$GH_SECRETS_PUSHED" == "true" ]]; then
-    # Fork is known and gh is available — print the exact loop the
-    # facilitator should run for the cohort-shared Neon secrets. These
-    # are intentionally NOT auto-pushed by Step 7 because they're the
-    # same value across every fork; coupling per-attendee provisioning
-    # to cohort-level state would make rotation harder.
-    echo "2. Set the cohort-shared Neon secrets on $GITHUB_REPOSITORY:"
-    echo ""
-    echo "   gh secret set NEON_API_KEY    --repo $GITHUB_REPOSITORY --body \"\$NEON_API_KEY\""
-    echo "   gh secret set NEON_PROJECT_ID --repo $GITHUB_REPOSITORY --body \"\$NEON_PROJECT_ID\""
-    echo ""
-    echo "   (NEON_PARENT_BRANCH and PRODUCTION_DATABASE_URL were set automatically above.)"
-    echo "   The 'database-url' Secret Manager secret was created automatically"
-    echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
+    # Fork is known and gh is available. Step 7 above auto-pushed the
+    # NEON secrets when they were set in env (#130). If they weren't
+    # set, print the manual instructions for the missing ones.
+    if [[ -z "${NEON_API_KEY:-}" || -z "${NEON_PROJECT_ID:-}" ]]; then
+      echo "2. Set the missing Neon secrets on $GITHUB_REPOSITORY:"
+      echo ""
+      if [[ -z "${NEON_API_KEY:-}" ]]; then
+        echo "   gh secret set NEON_API_KEY    --repo $GITHUB_REPOSITORY --body \"\$NEON_API_KEY\""
+      fi
+      if [[ -z "${NEON_PROJECT_ID:-}" ]]; then
+        echo "   gh secret set NEON_PROJECT_ID --repo $GITHUB_REPOSITORY --body \"\$NEON_PROJECT_ID\""
+      fi
+      echo ""
+      echo "   (NEON_PARENT_BRANCH and PRODUCTION_DATABASE_URL were set automatically above.)"
+      echo "   The 'database-url' Secret Manager secret was created automatically"
+      echo "   from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
+    else
+      echo "2. All Neon secrets auto-pushed. The 'database-url' Secret Manager"
+      echo "   secret was created from the attendee's Neon branch ('$NEON_BRANCH_NAME')."
+    fi
   else
     echo "2. Set these GitHub secrets from the Neon console (shared across cohort):"
     echo ""
