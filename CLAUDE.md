@@ -165,9 +165,12 @@ TEMPLATE: Fill in project-specific details below when using this template.
 ### Project Information
 
 - **License**: BSL 1.1 (converts to Apache 2.0 after 3 years per release)
+<!-- bootstrap:project-config:start -->
 - **Project Name**: [Your project name]
+- **Organization**: [GitHub org name]
 - **Repository**: [GitHub repo URL]
 - **Project Board**: [GitHub project board URL]
+<!-- bootstrap:project-config:end -->
 - **Tech Stack**: FastAPI + Jinja2 + HTMX on Python 3.12
 - **Database layer**: SQLModel + Alembic
 - **Platform**: Google Cloud Platform (Cloud Run)
@@ -175,7 +178,6 @@ TEMPLATE: Fill in project-specific details below when using this template.
 - **Container Registry**: Artifact Registry
 - **Secrets**: Google Secret Manager
 - **Package manager**: uv
-- **Organization**: [GitHub org name]
 
 ### Build & Test Commands
 
