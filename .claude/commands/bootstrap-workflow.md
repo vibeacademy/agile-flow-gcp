@@ -83,10 +83,51 @@ any issues created before this point.
 
 ### 3. Branch Protection Configuration
 
-Verify or configure branch protection on `main`:
-- [ ] Require pull request reviews before merging
-- [ ] Require status checks to pass (if CI configured)
-- [ ] Do not allow bypassing the above settings
+Branch protection on `main` requires admin write on the repo. Two paths
+depending on who owns admin:
+
+**Workshop-org-hosted setup (May 2026 architecture):** branch protection
+should already be in place — the facilitator runs
+`scripts/setup-repo-protection.sh` against each attendee repo at
+provisioning time. Verify with:
+
+```bash
+gh api repos/<owner>/<repo>/branches/main/protection >/dev/null && \
+  echo "✓ branch protection in place" || \
+  echo "✗ branch protection NOT configured — see Manual UI fallback below"
+```
+
+If the verify command reports it's NOT configured and you have admin,
+run `bash scripts/setup-repo-protection.sh` from the repo root. If you
+don't have admin (typical for a workshop attendee on `vibeacademy/<handle>`),
+the facilitator should re-run the provisioning script for your repo, OR
+configure manually via the UI fallback below.
+
+**Personal-account fork or self-hosted setup:** you have admin on your
+own repo. Two ways to set protection:
+
+```bash
+# Recommended: scripted, idempotent, matches framework's expected state
+bash scripts/setup-repo-protection.sh
+```
+
+Or via the GitHub Settings UI (if the script can't run for any reason):
+
+**Manual UI fallback:**
+
+1. Open `https://github.com/<owner>/<repo>/settings/branches`
+2. Click **Add classic branch protection rule** (or **Add rule** — wording
+   varies by org plan)
+3. Branch name pattern: `main`
+4. Check the following (matches `scripts/setup-repo-protection.sh`):
+   - **Require a pull request before merging** → ✓ Required approvals: `1`
+   - **Require linear history** ✓
+   - **Do not allow bypassing the above settings** ✓
+   - **Allow force pushes** ☐ (leave unchecked)
+   - **Allow deletions** ☐ (leave unchecked)
+5. Status checks: leave unchecked for now (configure per-cohort once
+   CI check names are known)
+6. Click **Create** / **Save changes**
 
 ### 4. Initial Backlog Creation
 
