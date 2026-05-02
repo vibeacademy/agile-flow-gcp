@@ -17,6 +17,7 @@
 #   ✓ Activates the in-repo pre-push hook (`core.hooksPath`).
 #   ✓ Verifies you have admin access on the current fork.
 #   ✓ Creates the canonical label set (P0/P1/P2/P3/epic) on the fork.
+#   ✓ Populates CLAUDE.md project-config placeholders from git remote.
 #
 #   ✗ Does NOT cache tokens to disk. Tokens stay in gh's keyring.
 #   ✗ Does NOT auto-modify your shell rc to remove tokens — surfaces
@@ -184,9 +185,9 @@ if [ ! -t 0 ]; then
 fi
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 1/9: Detect shell + show current state
+#  Step 1/10: Detect shell + show current state
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 1/9: Detect shell ---${NC}"
+echo -e "${CYAN}--- Step 1/10: Detect shell ---${NC}"
 echo ""
 
 profile=$(detect_shell_profile)
@@ -197,9 +198,9 @@ print_info "Active gh account: ${active_account:-(none detected)}"
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 2/9: Persist AGILE_FLOW_SOLO_MODE
+#  Step 2/10: Persist AGILE_FLOW_SOLO_MODE
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 2/9: Persist AGILE_FLOW_SOLO_MODE=true ---${NC}"
+echo -e "${CYAN}--- Step 2/10: Persist AGILE_FLOW_SOLO_MODE=true ---${NC}"
 echo ""
 
 if [ "${AGILE_FLOW_SOLO_MODE:-}" = "true" ] && grep -qE "(^export AGILE_FLOW_SOLO_MODE=|^set -Ux AGILE_FLOW_SOLO_MODE )" "$profile" 2>/dev/null; then
@@ -210,9 +211,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 3/9: Audit GITHUB_PERSONAL_ACCESS_TOKEN* env vars
+#  Step 3/10: Audit GITHUB_PERSONAL_ACCESS_TOKEN* env vars
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 3/9: Audit GITHUB_PERSONAL_ACCESS_TOKEN env vars ---${NC}"
+echo -e "${CYAN}--- Step 3/10: Audit GITHUB_PERSONAL_ACCESS_TOKEN env vars ---${NC}"
 echo ""
 
 # In solo mode, ANY of these env vars override `gh auth switch` silently.
@@ -281,9 +282,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 4/9: Verify scopes
+#  Step 4/10: Verify scopes
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 4/9: Verify gh token scopes ---${NC}"
+echo -e "${CYAN}--- Step 4/10: Verify gh token scopes ---${NC}"
 echo ""
 
 required_scopes=(repo project workflow read:project)
@@ -364,9 +365,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 5/9: Activate pre-push hook
+#  Step 5/10: Activate pre-push hook
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 5/9: Activate pre-push hook ---${NC}"
+echo -e "${CYAN}--- Step 5/10: Activate pre-push hook ---${NC}"
 echo ""
 
 if [ -f "scripts/hooks/pre-push" ]; then
@@ -383,9 +384,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 6/9: Verify admin access on this fork
+#  Step 6/10: Verify admin access on this fork
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 6/9: Verify admin access on this fork ---${NC}"
+echo -e "${CYAN}--- Step 6/10: Verify admin access on this fork ---${NC}"
 echo ""
 
 remote_url=$(git config --get remote.origin.url 2>/dev/null || true)
@@ -419,9 +420,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 7/9: Set up canonical labels (#112)
+#  Step 7/10: Set up canonical labels (#112)
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 7/9: Set up canonical labels ---${NC}"
+echo -e "${CYAN}--- Step 7/10: Set up canonical labels ---${NC}"
 echo ""
 
 # Labels require the same admin/write permission as Step 6 verifies,
@@ -449,9 +450,9 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 8/9: Multi-bot env-var sanity check
+#  Step 8/10: Multi-bot env-var sanity check
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 8/9: Multi-bot env-var sanity check ---${NC}"
+echo -e "${CYAN}--- Step 8/10: Multi-bot env-var sanity check ---${NC}"
 echo ""
 
 if [ -n "${AGILE_FLOW_WORKER_ACCOUNT:-}" ] || [ -n "${AGILE_FLOW_REVIEWER_ACCOUNT:-}" ]; then
@@ -467,9 +468,45 @@ fi
 echo ""
 
 # ───────────────────────────────────────────────────────────────────
-#  Step 9/9: Done — restart prompt
+#  Step 9/10: Populate CLAUDE.md project-config block (#113)
 # ───────────────────────────────────────────────────────────────────
-echo -e "${CYAN}--- Step 9/9: Done ---${NC}"
+echo -e "${CYAN}--- Step 9/10: Populate CLAUDE.md project-config ---${NC}"
+echo ""
+
+# Replace the placeholder lines inside CLAUDE.md's marker block with
+# values derived from `git remote origin`. Skipped silently if the
+# marker block isn't present (older forks / instances that haven't
+# upgraded yet); the script just notes that and moves on.
+populate_script="$(dirname "$0")/populate-claude-md.sh"
+if [ ! -f "$populate_script" ]; then
+    print_warning "scripts/populate-claude-md.sh not found; skipping CLAUDE.md fill."
+elif [ ! -f "CLAUDE.md" ]; then
+    print_warning "CLAUDE.md not in cwd; skipping CLAUDE.md fill."
+elif ! grep -q '<!-- bootstrap:project-config:start -->' CLAUDE.md 2>/dev/null; then
+    print_info "CLAUDE.md has no project-config marker block; skipping fill."
+    print_info "(Older forks pre-#113. Upgrade the framework or wrap placeholders manually.)"
+else
+    # Run non-interactively from setup-solo-mode (we'd hit the
+    # populate-claude-md.sh's TTY check otherwise). Pass --owner/--repo
+    # explicitly when we can derive them so the suggested-default path
+    # gets sensible values for project-name (= repo) and project-board
+    # (= orgs/<owner>/projects).
+    if bash "$populate_script" < /dev/null 2>&1 | sed 's/^/    /'; then
+        :
+    else
+        populate_ec=$?
+        if [ "$populate_ec" -ne 0 ]; then
+            print_warning "populate-claude-md.sh exited with code ${populate_ec}; continuing."
+            print_info "Run 'bash scripts/populate-claude-md.sh' manually with --project-name and --project-board to finish."
+        fi
+    fi
+fi
+echo ""
+
+# ───────────────────────────────────────────────────────────────────
+#  Step 10/10: Done — restart prompt
+# ───────────────────────────────────────────────────────────────────
+echo -e "${CYAN}--- Step 10/10: Done ---${NC}"
 echo ""
 
 print_success "Solo mode is configured."
