@@ -21,6 +21,17 @@
 #                            opt back into the previous silent-reuse behavior
 #                            for paired collaboration or re-running an existing
 #                            cohort against a still-populated Neon project.
+#   --workshop-org=<org>     (#107) When set, creates each attendee's repo
+#                            under <org> via `gh repo create <org>/<handle>
+#                            --template <WORKSHOP_TEMPLATE_REPO> --public`
+#                            BEFORE calling the inner provisioner. Overrides
+#                            each row's github_full_repo to <org>/<handle>
+#                            (so WIF binding and secret pushes target the
+#                            workshop-org repo, not the attendee's personal
+#                            account). Also forwards WIF_ORG_TRUST_PATTERN=
+#                            <org> to the inner script so a single WIF SA
+#                            binding covers every attendee repo. Equivalent
+#                            env var: WORKSHOP_ORG.
 #
 # Optional environment variables:
 #   GCP_REGION           (default: us-central1) — passed through to inner script
@@ -33,6 +44,17 @@
 #   BUDGET_CAP_USD       optional; forwarded to inner script for Step 5.6
 #                        (per-project billing budget). Default for workshop
 #                        usage is 25.
+#   WORKSHOP_ORG         (#107) Same effect as --workshop-org=<org> above.
+#                        When unset (default), the wrapper assumes attendee
+#                        forks already exist on personal accounts (legacy
+#                        behavior).
+#   WORKSHOP_TEMPLATE_REPO (default: vibeacademy/agile-flow-gcp) The template
+#                        repo `gh repo create --template` uses when
+#                        WORKSHOP_ORG is set. Override for non-vibeacademy
+#                        forks of the framework.
+#   GH_REPO_CREATE       (default: gh) Path to the gh binary used for
+#                        --workshop-org's `gh repo create` call. Tests
+#                        override to a stub.
 #
 # CSV format (header required, accepts 4, 5, 6, or 7 columns):
 #   handle,github_user,email,cohort
@@ -90,6 +112,9 @@ OUTPUT_CSV="${OUTPUT_CSV:-roster-output.csv}"
 
 ROSTER_CSV=""
 FORCE_SHARED_PARENT="${NEON_FORCE_SHARED_PARENT:-false}"
+WORKSHOP_ORG="${WORKSHOP_ORG:-}"
+WORKSHOP_TEMPLATE_REPO="${WORKSHOP_TEMPLATE_REPO:-vibeacademy/agile-flow-gcp}"
+GH_REPO_CREATE="${GH_REPO_CREATE:-gh}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -97,8 +122,16 @@ while [[ $# -gt 0 ]]; do
       FORCE_SHARED_PARENT=true
       shift
       ;;
+    --workshop-org=*)
+      WORKSHOP_ORG="${1#--workshop-org=}"
+      shift
+      ;;
+    --workshop-org)
+      WORKSHOP_ORG="$2"
+      shift 2
+      ;;
     -h|--help)
-      sed -n '1,60p' "$0"
+      sed -n '1,80p' "$0"
       exit 0
       ;;
     --*)
@@ -218,6 +251,17 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
     exit 2
   fi
 
+  # Workshop-org-hosted mode (#107): when WORKSHOP_ORG is set, override
+  # github_full_repo to <org>/<handle> regardless of what the CSV said.
+  # This is the canonical path for the May 2026 workshop architecture
+  # — attendee repos live under the workshop org, not under personal
+  # accounts. The CSV's github_full_repo field is preserved for non-
+  # workshop-org modes (and for documentation purposes if the facilitator
+  # wants to record it).
+  if [[ -n "$WORKSHOP_ORG" ]]; then
+    github_full_repo="${WORKSHOP_ORG}/${handle}"
+  fi
+
   # Default github_full_repo to "<github_user>/agile-flow-gcp" when not set.
   # That preserves today's behavior for personal-fork participants.
   if [[ -z "$github_full_repo" ]]; then
@@ -246,6 +290,27 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   echo "──────────────────────────────────────────────────"
   echo "  [$total] $handle  ->  $project_id"
   echo "──────────────────────────────────────────────────"
+
+  # Workshop-org-hosted mode (#107): create the attendee's repo under
+  # the workshop org from the template. Idempotent — `gh repo create`
+  # exits non-zero if the repo already exists; we check first via
+  # `gh repo view` to label honestly. This step requires the facilitator's
+  # gh token to have admin write on the workshop org.
+  if [[ -n "$WORKSHOP_ORG" ]]; then
+    if "$GH_REPO_CREATE" repo view "${github_full_repo}" >/dev/null 2>&1; then
+      echo "[skip] repo ${github_full_repo} already exists"
+    else
+      echo "[create] repo ${github_full_repo} from template ${WORKSHOP_TEMPLATE_REPO}"
+      if ! "$GH_REPO_CREATE" repo create "${github_full_repo}" \
+        --template "${WORKSHOP_TEMPLATE_REPO}" \
+        --public \
+        --include-all-branches >/dev/null; then
+        echo "ERROR: failed to create repo ${github_full_repo}" >&2
+        echo "       The facilitator's gh token must have admin write on the org." >&2
+        exit 1
+      fi
+    fi
+  fi
 
   # Detect whether the project already exists, so we can label the output
   # row honestly. The inner script is idempotent either way, so this is
@@ -279,6 +344,11 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   # project ID is their own.
   effective_neon_project_id="${row_neon_project_id:-${NEON_PROJECT_ID:-}}"
 
+  # Workshop-org-hosted mode (#107): forward WIF_ORG_TRUST_PATTERN=
+  # $WORKSHOP_ORG so the inner script's Step 5.5 sets up an org-trusted
+  # WIF binding (one binding for the whole org instead of per-repo).
+  effective_wif_org_trust="${WIF_ORG_TRUST_PATTERN:-${WORKSHOP_ORG:-}}"
+
   GCP_PROJECT_ID="$project_id" \
   BILLING_ACCOUNT_ID="$BILLING_ACCOUNT_ID" \
   GCP_REGION="${GCP_REGION:-us-central1}" \
@@ -287,6 +357,7 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   GITHUB_REPO="$github_repo" \
   GITHUB_USERNAME="$github_user" \
   GITHUB_REPOSITORY="$github_full_repo" \
+  WIF_ORG_TRUST_PATTERN="$effective_wif_org_trust" \
   NEON_BRANCH_NAME="$neon_branch" \
   NEON_API_KEY="${NEON_API_KEY:-}" \
   NEON_PROJECT_ID="$effective_neon_project_id" \

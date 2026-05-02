@@ -24,6 +24,16 @@
 #   GITHUB_USERNAME      Legacy alias for GITHUB_OWNER. When GITHUB_OWNER
 #                        is unset, the script uses GITHUB_USERNAME as the
 #                        owner. Existing callers don't need to change.
+#   WIF_ORG_TRUST_PATTERN (optional, #107) When set, Step 5.5's WIF
+#                        provider trusts ALL repos under the named org
+#                        (assertion.repository_owner == '<pattern>')
+#                        instead of one specific repo. The SA binding
+#                        member uses attribute.repository_owner/<pattern>,
+#                        so a single binding covers every attendee repo
+#                        under the workshop org. Only meaningful when
+#                        GITHUB_OWNER is also set (the per-row WIF
+#                        plumbing still runs; the binding shape just
+#                        widens). Backwards-compatible when unset.
 #   NEON_API_KEY         (optional) Enables Step 5.7 (Neon branch +
 #                        database-url Secret Manager). Required for
 #                        per-attendee branch automation.
@@ -404,6 +414,25 @@ done
 WIF_OWNER="${GITHUB_OWNER:-${GITHUB_USERNAME:-}}"
 WIF_REPO_NAME="${GITHUB_REPO:-agile-flow-gcp}"
 
+# Org-trust mode (#107). When WIF_ORG_TRUST_PATTERN is set (typically
+# from the workshop-org provisioning flow with WIF_ORG_TRUST_PATTERN=
+# vibeacademy), the WIF provider trusts ALL repos under the named org
+# instead of one specific repo. This means:
+#   - Provider attribute-condition becomes `assertion.repository_owner == '<org>'`
+#   - Provider attribute-mapping adds attribute.repository_owner
+#   - SA binding member uses attribute.repository_owner/<org> instead of
+#     attribute.repository/<owner>/<repo>
+#
+# Result: a single SA binding covers every attendee repo under the org,
+# regardless of how many attendees join the cohort. The framework still
+# requires GITHUB_OWNER/GITHUB_REPO for compatibility with the existing
+# wrapper plumbing (and the per-repo binding remains supported when
+# WIF_ORG_TRUST_PATTERN is unset).
+#
+# Backwards-compatible: when WIF_ORG_TRUST_PATTERN is unset, the existing
+# per-repo binding behavior is preserved exactly.
+WIF_TRUST_ORG="${WIF_ORG_TRUST_PATTERN:-}"
+
 if [[ -n "$WIF_OWNER" ]]; then
   WIF_POOL="github"
   WIF_PROVIDER="github"
@@ -423,7 +452,16 @@ if [[ -n "$WIF_OWNER" ]]; then
       --project="$GCP_PROJECT_ID"
   fi
 
-  # 5.5b: Create the OIDC provider trusting GitHub Actions tokens
+  # 5.5b: Create the OIDC provider trusting GitHub Actions tokens.
+  # Attribute mapping and condition vary based on org-trust mode.
+  if [[ -n "$WIF_TRUST_ORG" ]]; then
+    WIF_ATTR_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_owner=assertion.repository_owner,attribute.actor=assertion.actor"
+    WIF_ATTR_CONDITION="assertion.repository_owner == '${WIF_TRUST_ORG}'"
+  else
+    WIF_ATTR_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor"
+    WIF_ATTR_CONDITION="assertion.repository != ''"
+  fi
+
   if gcloud iam workload-identity-pools providers describe "$WIF_PROVIDER" \
     --workload-identity-pool="$WIF_POOL" \
     --location=global \
@@ -435,12 +473,12 @@ if [[ -n "$WIF_OWNER" ]]; then
       --workload-identity-pool="$WIF_POOL" \
       --location=global \
       --issuer-uri="https://token.actions.githubusercontent.com" \
-      --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.actor=assertion.actor" \
-      --attribute-condition="assertion.repository != ''" \
+      --attribute-mapping="$WIF_ATTR_MAPPING" \
+      --attribute-condition="$WIF_ATTR_CONDITION" \
       --project="$GCP_PROJECT_ID"
   fi
 
-  # 5.5c: Bind the deployer SA so the specific repo can impersonate it.
+  # 5.5c: Bind the deployer SA so the GitHub identity can impersonate it.
   # google-github-actions/auth@v2 in impersonation mode (which our deploy
   # workflow uses by passing both `workload_identity_provider` and
   # `service_account`) needs TWO roles:
@@ -462,9 +500,16 @@ if [[ -n "$WIF_OWNER" ]]; then
   # PERMISSION_DENIED on its own setIamPolicy for a few seconds. Wrap in
   # the retry helper to absorb that lag (it already classifies the
   # IAM_PERMISSION_DENIED signature as transient).
-  WIF_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository/${WIF_OWNER}/${WIF_REPO_NAME}"
+  if [[ -n "$WIF_TRUST_ORG" ]]; then
+    WIF_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository_owner/${WIF_TRUST_ORG}"
+    WIF_BIND_LABEL="${WIF_TRUST_ORG}/* (org-trust)"
+  else
+    WIF_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${WIF_POOL}/attribute.repository/${WIF_OWNER}/${WIF_REPO_NAME}"
+    WIF_BIND_LABEL="${WIF_OWNER}/${WIF_REPO_NAME}"
+  fi
+
   for wif_role in roles/iam.workloadIdentityUser roles/iam.serviceAccountTokenCreator; do
-    echo "[bind] $wif_role <- ${WIF_OWNER}/${WIF_REPO_NAME}"
+    echo "[bind] $wif_role <- ${WIF_BIND_LABEL}"
     retry_eventual_consistency "wif bind $wif_role" -- \
       gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
         --role="$wif_role" \

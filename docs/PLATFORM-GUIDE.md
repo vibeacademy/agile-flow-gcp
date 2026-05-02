@@ -528,10 +528,26 @@ rows and one personal-fork default).
 `workshop-setup.sh` is a thin wrapper: after pre-flight passes, it
 delegates to `scripts/provision-workshop-roster.sh`. That script:
 
-1. Computes each project ID and checks whether it already exists
-2. Calls `provision-gcp-project.sh --create-project` (idempotent)
-3. Grants `roles/editor` on the new project to the participant's email
-4. Appends a row to `roster-output.csv` with status + project ID
+1. (When `--workshop-org=<org>` set, #107) Calls
+   `gh repo create <org>/<handle> --template <WORKSHOP_TEMPLATE_REPO> --public`
+   per row, idempotently. Overrides each row's `github_full_repo` to
+   `<org>/<handle>` so all subsequent steps target the workshop-org
+   repo. Forwards `WIF_ORG_TRUST_PATTERN=<org>` to the inner
+   provisioner so a single WIF SA binding covers every attendee repo.
+2. Computes each project ID and checks whether it already exists
+3. Calls `provision-gcp-project.sh --create-project` (idempotent)
+4. Grants `roles/editor` on the new project to the participant's email
+5. Appends a row to `roster-output.csv` with status + project ID
+
+Step 1 is the May 2026 workshop architecture's "facilitator owns repo
+provisioning" model: attendee repos live under `vibeacademy/<handle>`
+during the workshop, with attendees having WRITE but NOT admin. The
+facilitator's gh token (which has admin write on the org) creates the
+repos from the template. Post-workshop, attendees can `gh repo
+transfer` to their own account.
+
+When `--workshop-org` is unset (legacy), Step 1 is skipped — the
+wrapper assumes attendee forks already exist on personal accounts.
 
 ### Idempotency and fail-fast
 
