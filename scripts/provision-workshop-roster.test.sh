@@ -64,7 +64,7 @@ EOF
 #!/usr/bin/env bash
 # Log every invocation along with the env vars the wrapper is supposed
 # to forward. Tests grep this log to verify per-row env passthrough.
-echo "provision \$* GCP_PROJECT_ID=\${GCP_PROJECT_ID:-} GITHUB_USERNAME=\${GITHUB_USERNAME:-} GITHUB_OWNER=\${GITHUB_OWNER:-} GITHUB_REPO=\${GITHUB_REPO:-} NEON_BRANCH_NAME=\${NEON_BRANCH_NAME:-} NEON_PROJECT_ID=\${NEON_PROJECT_ID:-}" >> "$tmp/provision.log"
+echo "provision \$* GCP_PROJECT_ID=\${GCP_PROJECT_ID:-} GITHUB_USERNAME=\${GITHUB_USERNAME:-} GITHUB_OWNER=\${GITHUB_OWNER:-} GITHUB_REPO=\${GITHUB_REPO:-} GITHUB_REPOSITORY=\${GITHUB_REPOSITORY:-} WIF_ORG_TRUST_PATTERN=\${WIF_ORG_TRUST_PATTERN:-} NEON_BRANCH_NAME=\${NEON_BRANCH_NAME:-} NEON_PROJECT_ID=\${NEON_PROJECT_ID:-}" >> "$tmp/provision.log"
 
 if [[ "$behavior" == "fail" ]]; then
   echo "fake provision failure" >&2
@@ -550,6 +550,245 @@ set -e
 
 assert_eq "0" "$exit_code" "wrapper exits 0 with 6-column header (regression guard)"
 assert_contains "NEON_PROJECT_ID=cohort-shared-proj-zzz" "$T15/provision.log" "6-column row forwards cohort env var unchanged"
+
+# ── Test 16: --workshop-org creates repos under the org + overrides github_full_repo
+#
+# #107: when --workshop-org is set, the wrapper:
+#   - calls `gh repo create $org/$handle --template ... --public` per row
+#   - overrides github_full_repo to $org/$handle (regardless of CSV value)
+#   - forwards WIF_ORG_TRUST_PATTERN=$org to the inner provisioner
+#
+# The gh stub here logs every call so we can assert on both the create
+# call AND that the inner provisioner saw the right env vars.
+
+echo ""
+echo "Test 16: --workshop-org creates repos and overrides github_full_repo"
+
+T16=$(new_tmp)
+make_stubs "$T16" "ok"
+
+# gh stub: log every call; `repo view` returns 1 (repo doesn't exist)
+# so the wrapper falls through to `repo create`.
+cat > "$T16/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T16/gh.log"
+case "\$1 \$2" in
+  "repo view") exit 1 ;;
+  "repo create") exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T16/bin/gh"
+
+cat > "$T16/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo
+alice,alice-gh,alice@x.com,2026-05,alice,personal-acme/foo
+bob,bob-gh,bob@x.com,2026-05,bob,
+EOF
+
+set +e
+PATH="$T16/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T16/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T16/roster-output.csv" \
+  GH_REPO_CREATE="$T16/bin/gh" \
+  "$WRAPPER" "$T16/roster.csv" --workshop-org=vibeacademy > "$T16/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with --workshop-org"
+# Each row should have a `gh repo create vibeacademy/<handle>` call
+assert_contains "gh repo create vibeacademy/alice" "$T16/gh.log" "alice repo created under vibeacademy"
+assert_contains "gh repo create vibeacademy/bob" "$T16/gh.log" "bob repo created under vibeacademy"
+# github_full_repo was overridden — alice's CSV said personal-acme/foo
+# but the inner script should see vibeacademy/alice
+assert_contains "GITHUB_REPOSITORY=vibeacademy/alice" "$T16/provision.log" "alice's github_full_repo overridden to vibeacademy/alice"
+assert_contains "GITHUB_REPOSITORY=vibeacademy/bob" "$T16/provision.log" "bob's github_full_repo overridden to vibeacademy/bob"
+# WIF_ORG_TRUST_PATTERN forwarded
+assert_contains "WIF_ORG_TRUST_PATTERN=vibeacademy" "$T16/provision.log" "WIF_ORG_TRUST_PATTERN forwarded"
+# Personal-acme value from CSV is NOT used
+if grep -q "GITHUB_REPOSITORY=personal-acme" "$T16/provision.log"; then
+  echo -e "  ${RED}✗${NC} CSV's personal-acme/foo leaked despite --workshop-org override"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} CSV's personal-acme/foo correctly suppressed by --workshop-org"
+  PASS=$((PASS + 1))
+fi
+
+# ── Test 17: --workshop-org skips create when repo already exists ──────
+#
+# Idempotency: facilitator re-runs the provisioner; each repo should
+# be detected as existing (via `gh repo view`) and the create call
+# skipped.
+
+echo ""
+echo "Test 17: --workshop-org skips repo create when repo already exists"
+
+T17=$(new_tmp)
+make_stubs "$T17" "ok"
+
+# gh stub: `repo view` returns 0 (repo exists) → `repo create` should NOT be called
+cat > "$T17/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T17/gh.log"
+case "\$1 \$2" in
+  "repo view") exit 0 ;;
+  "repo create") exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T17/bin/gh"
+
+cat > "$T17/roster.csv" <<EOF
+handle,github_user,email,cohort
+alice,alice-gh,alice@x.com,2026-05
+EOF
+
+set +e
+PATH="$T17/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T17/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T17/roster-output.csv" \
+  GH_REPO_CREATE="$T17/bin/gh" \
+  "$WRAPPER" "$T17/roster.csv" --workshop-org=vibeacademy > "$T17/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 on idempotent re-run"
+assert_contains "gh repo view vibeacademy/alice" "$T17/gh.log" "repo view called"
+assert_contains "repo vibeacademy/alice already exists" "$T17/stdout.log" "skip message printed"
+# Critical: gh repo create must NOT have been called
+if grep -q "repo create" "$T17/gh.log"; then
+  echo -e "  ${RED}✗${NC} gh repo create called despite repo existing"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} gh repo create NOT called when repo exists (idempotent)"
+  PASS=$((PASS + 1))
+fi
+
+# ── Test 18: WORKSHOP_ORG env var works (equivalent to --workshop-org=) ──
+
+echo ""
+echo "Test 18: WORKSHOP_ORG env var works (equivalent to --workshop-org=)"
+
+T18=$(new_tmp)
+make_stubs "$T18" "ok"
+
+cat > "$T18/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T18/gh.log"
+case "\$1 \$2" in
+  "repo view") exit 1 ;;
+  "repo create") exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T18/bin/gh"
+
+cat > "$T18/roster.csv" <<EOF
+handle,github_user,email,cohort
+alice,alice-gh,alice@x.com,2026-05
+EOF
+
+set +e
+PATH="$T18/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T18/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T18/roster-output.csv" \
+  GH_REPO_CREATE="$T18/bin/gh" \
+  WORKSHOP_ORG="my-workshop-org" \
+  "$WRAPPER" "$T18/roster.csv" > "$T18/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with WORKSHOP_ORG env var"
+assert_contains "gh repo create my-workshop-org/alice" "$T18/gh.log" "repo created under env var org"
+assert_contains "GITHUB_REPOSITORY=my-workshop-org/alice" "$T18/provision.log" "github_full_repo overridden via env var"
+
+# ── Test 19: Without --workshop-org, NO gh repo create call (regression guard)
+#
+# Backwards-compat: legacy mode (no --workshop-org, no WORKSHOP_ORG env)
+# must NOT make any `gh repo create` calls. Attendee forks already
+# exist on personal accounts.
+
+echo ""
+echo "Test 19: legacy mode (no --workshop-org) does not call gh repo create"
+
+T19=$(new_tmp)
+make_stubs "$T19" "ok"
+
+cat > "$T19/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T19/gh.log"
+exit 0
+EOF
+chmod +x "$T19/bin/gh"
+
+cat > "$T19/roster.csv" <<EOF
+handle,github_user,email,cohort
+alice,alice-gh,alice@x.com,2026-05
+EOF
+
+set +e
+PATH="$T19/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T19/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T19/roster-output.csv" \
+  GH_REPO_CREATE="$T19/bin/gh" \
+  "$WRAPPER" "$T19/roster.csv" > "$T19/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 in legacy mode"
+# gh.log should be empty (no calls at all) since the wrapper doesn't use gh in legacy mode
+if [[ -f "$T19/gh.log" ]] && grep -q "." "$T19/gh.log"; then
+  echo -e "  ${RED}✗${NC} gh was called in legacy mode (regression — no calls expected)"
+  cat "$T19/gh.log"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} gh not called in legacy mode (regression guard)"
+  PASS=$((PASS + 1))
+fi
+# WIF_ORG_TRUST_PATTERN should be empty in legacy mode
+assert_contains "WIF_ORG_TRUST_PATTERN= " "$T19/provision.log" "WIF_ORG_TRUST_PATTERN empty in legacy mode"
+
+# ── Test 20: WORKSHOP_TEMPLATE_REPO override is forwarded ──────────────
+
+echo ""
+echo "Test 20: WORKSHOP_TEMPLATE_REPO override flows into gh repo create"
+
+T20=$(new_tmp)
+make_stubs "$T20" "ok"
+
+cat > "$T20/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T20/gh.log"
+case "\$1 \$2" in
+  "repo view") exit 1 ;;
+  "repo create") exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T20/bin/gh"
+
+cat > "$T20/roster.csv" <<EOF
+handle,github_user,email,cohort
+alice,alice-gh,alice@x.com,2026-05
+EOF
+
+set +e
+PATH="$T20/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T20/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T20/roster-output.csv" \
+  GH_REPO_CREATE="$T20/bin/gh" \
+  WORKSHOP_TEMPLATE_REPO="myfork/agile-flow-gcp" \
+  "$WRAPPER" "$T20/roster.csv" --workshop-org=vibeacademy > "$T20/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0"
+assert_contains "template myfork/agile-flow-gcp" "$T20/gh.log" "custom template forwarded"
 
 echo ""
 echo "─────────────────────────────────"
