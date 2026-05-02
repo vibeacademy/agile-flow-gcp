@@ -1920,25 +1920,26 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# ── Test 27: cohort-shared Neon secret loop in footer ───────────────────
+# ── Test 27: NEON_API_KEY + NEON_PROJECT_ID auto-pushed (#130) ──────────
 #
-# When the wrapper auto-pushes per-attendee secrets (Step 7 succeeded)
-# AND the Neon branch was provisioned, the footer should print the
-# exact `gh secret set` loop the facilitator runs for the cohort-shared
-# secrets (NEON_API_KEY, NEON_PROJECT_ID). These two are intentionally
-# NOT auto-pushed by Step 7 because they're the same value across every
-# fork in the cohort; coupling per-attendee provisioning to cohort state
-# would make rotation harder.
+# Per #130 (May 2026 architecture): both NEON_API_KEY and NEON_PROJECT_ID
+# are now auto-pushed by Step 7 when set in env. Under #108's per-
+# attendee Neon project model, NEON_PROJECT_ID is per-row from the
+# roster (not cohort-shared); under the legacy shared-project model
+# it's the cohort env var. Either way, both must be on the attendee
+# repo for preview deploys to work — without them, preview-deploy.yml
+# `Check secrets` sets neon_configured=false, the Neon-branch step is
+# skipped, db_url_with_pooler is empty, and Cloud Run gets DATABASE_URL=""
+# at startup → container crashes with the generic Cloud Run timeout.
+# The 2026-05-02 dry-run on vibeacademy/worker confirmed this failure
+# end-to-end.
 #
-# The dry-run on 2026-04-29 surfaced the gap: the wrapper completed
-# successfully, the participant fork had GCP_PROJECT_ID etc. set, but
-# /api/health worked and `/` returned 500 because NEON_API_KEY was
-# never set on the fork — the facilitator hadn't run a manual `gh
-# secret set` loop. Making this loop visible at provisioning-completion
-# time is the upstream remedy.
+# Test 27 inverted from its pre-#130 form: NEON secrets SHOULD now
+# appear in gh.log when set, and the footer should NOT print the
+# manual gh-secret-set loop for them.
 
 echo ""
-echo "Test 27: Footer prints cohort-shared Neon secret loop when Step 7 + Neon both ran"
+echo "Test 27: NEON_API_KEY + NEON_PROJECT_ID auto-pushed when set in env (#130)"
 
 T27=$(mktemp -d -t aflowtest-XXXX)
 mkdir -p "$T27/bin"
@@ -2081,26 +2082,6 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# Core regression-guard assertions: the footer must print the exact
-# gh-secret-set commands for the two cohort-shared secrets so a
-# facilitator can copy-paste from the wrapper output.
-if grep -q "gh secret set NEON_API_KEY    --repo acme/widget-shop" "$T27/stdout.log"; then
-  echo -e "  ${GREEN}✓${NC} footer prints gh secret set NEON_API_KEY loop"
-  PASS=$((PASS + 1))
-else
-  echo -e "  ${RED}✗${NC} expected NEON_API_KEY gh-secret-set loop in footer"
-  cat "$T27/stdout.log"
-  FAIL=$((FAIL + 1))
-fi
-
-if grep -q "gh secret set NEON_PROJECT_ID --repo acme/widget-shop" "$T27/stdout.log"; then
-  echo -e "  ${GREEN}✓${NC} footer prints gh secret set NEON_PROJECT_ID loop"
-  PASS=$((PASS + 1))
-else
-  echo -e "  ${RED}✗${NC} expected NEON_PROJECT_ID gh-secret-set loop in footer"
-  FAIL=$((FAIL + 1))
-fi
-
 # Per-attendee secret added by #71: PRODUCTION_DATABASE_URL must be
 # auto-pushed alongside NEON_PARENT_BRANCH whenever Neon was provisioned.
 # Without it, deploy.yml's migration step skips silently and Cloud Run
@@ -2115,21 +2096,46 @@ else
   FAIL=$((FAIL + 1))
 fi
 
-# The footer must NOT actually push these — they're cohort-shared, not
-# per-attendee. gh.log should only contain the per-attendee secrets.
-if ! grep -q "gh secret set NEON_API_KEY" "$T27/gh.log"; then
-  echo -e "  ${GREEN}✓${NC} cohort-shared NEON_API_KEY was NOT auto-pushed"
+# Post-#130: NEON_API_KEY + NEON_PROJECT_ID are now auto-pushed when set
+# in env. Without these on the attendee repo, preview-deploy.yml sees
+# neon_configured=false → skips Neon branch creation → empty DATABASE_URL
+# → Cloud Run startup crash with generic timeout error. Test 27 was
+# previously asserting these should NOT be pushed (under the older
+# "cohort-shared, manual" model); inverted by #130.
+if grep -q "gh secret set NEON_API_KEY --repo acme/widget-shop" "$T27/gh.log"; then
+  echo -e "  ${GREEN}✓${NC} NEON_API_KEY auto-pushed (#130)"
   PASS=$((PASS + 1))
 else
-  echo -e "  ${RED}✗${NC} NEON_API_KEY was pushed automatically; should be cohort-manual"
+  echo -e "  ${RED}✗${NC} expected NEON_API_KEY push when set in env (#130)"
   cat "$T27/gh.log"
   FAIL=$((FAIL + 1))
 fi
-if ! grep -q "gh secret set NEON_PROJECT_ID" "$T27/gh.log"; then
-  echo -e "  ${GREEN}✓${NC} cohort-shared NEON_PROJECT_ID was NOT auto-pushed"
+if grep -q "gh secret set NEON_PROJECT_ID --repo acme/widget-shop" "$T27/gh.log"; then
+  echo -e "  ${GREEN}✓${NC} NEON_PROJECT_ID auto-pushed (#130)"
   PASS=$((PASS + 1))
 else
-  echo -e "  ${RED}✗${NC} NEON_PROJECT_ID was pushed automatically; should be cohort-manual"
+  echo -e "  ${RED}✗${NC} expected NEON_PROJECT_ID push when set in env (#130)"
+  cat "$T27/gh.log"
+  FAIL=$((FAIL + 1))
+fi
+
+# The footer should NOT print the manual gh-secret-set loop for these
+# secrets when they were auto-pushed — that was the pre-#130 instruction
+# that's now redundant noise. The "All Neon secrets auto-pushed" message
+# replaces it.
+if ! grep -q "gh secret set NEON_API_KEY    --repo acme/widget-shop" "$T27/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} footer suppresses manual NEON_API_KEY instruction (auto-pushed)"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} footer leaked manual NEON_API_KEY loop despite auto-push"
+  FAIL=$((FAIL + 1))
+fi
+if grep -q "All Neon secrets auto-pushed" "$T27/stdout.log"; then
+  echo -e "  ${GREEN}✓${NC} footer prints 'auto-pushed' confirmation"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected footer 'auto-pushed' confirmation message"
+  cat "$T27/stdout.log"
   FAIL=$((FAIL + 1))
 fi
 
