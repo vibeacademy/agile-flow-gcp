@@ -600,6 +600,27 @@ assert_eq "0" "$exit_code" "wrapper exits 0 with --workshop-org"
 # Each row should have a `gh repo create vibeacademy/<handle>` call
 assert_contains "gh repo create vibeacademy/alice" "$T16/gh.log" "alice repo created under vibeacademy"
 assert_contains "gh repo create vibeacademy/bob" "$T16/gh.log" "bob repo created under vibeacademy"
+# Each create call must include --public (not --private). Use grep -F
+# directly so the leading -- isn't interpreted as a grep flag.
+if grep -qF -- "--public" "$T16/gh.log"; then
+  echo -e "  ${GREEN}✓${NC} repo create includes --public flag"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}✗${NC} expected --public in repo create call"
+  FAIL=$((FAIL + 1))
+fi
+# Regression guard (#129): --include-all-branches must NOT be present.
+# That flag copies template branches verbatim while gh squashes the
+# template's main into a fresh single commit, leaving the template
+# branches with no common ancestor — GitHub's compare view reports
+# "entirely different commit histories" and PR creation fails.
+if grep -q "include-all-branches" "$T16/gh.log"; then
+  echo -e "  ${RED}✗${NC} --include-all-branches still present in gh repo create (#129 regression)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} --include-all-branches correctly absent (only main is copied; #129)"
+  PASS=$((PASS + 1))
+fi
 # github_full_repo was overridden — alice's CSV said personal-acme/foo
 # but the inner script should see vibeacademy/alice
 assert_contains "GITHUB_REPOSITORY=vibeacademy/alice" "$T16/provision.log" "alice's github_full_repo overridden to vibeacademy/alice"

@@ -301,10 +301,18 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
       echo "[skip] repo ${github_full_repo} already exists"
     else
       echo "[create] repo ${github_full_repo} from template ${WORKSHOP_TEMPLATE_REPO}"
+      # NOTE: --include-all-branches is intentionally OMITTED (#129).
+      # gh repo create --template starts the new repo's main as a fresh
+      # single commit (the template's main history is squashed). If we
+      # also copy template branches, those branches retain their pre-
+      # squash history and share ZERO commits with the new main —
+      # GitHub's compare view reports "entirely different commit
+      # histories" and any "create PR from this branch" attempt errors.
+      # Default behavior (no --include-all-branches) creates only main,
+      # which is what attendees actually need for a fresh workshop start.
       if ! "$GH_REPO_CREATE" repo create "${github_full_repo}" \
         --template "${WORKSHOP_TEMPLATE_REPO}" \
-        --public \
-        --include-all-branches >/dev/null; then
+        --public >/dev/null; then
         echo "ERROR: failed to create repo ${github_full_repo}" >&2
         echo "       The facilitator's gh token must have admin write on the org." >&2
         exit 1
