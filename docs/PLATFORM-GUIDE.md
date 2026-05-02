@@ -731,8 +731,32 @@ cohorts.
 ### Branch namespace
 
 Neon branches are unique within a project. Across projects, names can
-repeat freely. The framework uses one Neon project per cohort by
-default.
+repeat freely. The framework supports two Neon project models for
+workshop cohorts:
+
+- **Shared cohort project (default for small N or paired use):** one
+  Neon project per cohort with one branch per attendee. Roster CSV
+  uses 4/5/6-column variants; cohort-level `NEON_PROJECT_ID` env var
+  applies to every row.
+- **Per-attendee project under a workshop org (#108, recommended for
+  workshops with ≥4 attendees):** each attendee gets their own Neon
+  project under a workshop-scoped Neon org. Console clarity (each
+  attendee sees only their own project), free-tier branch quota
+  isolation, and clean teardown. Use the 7-column roster variant
+  with `neon_project_id` populated by
+  `scripts/create-workshop-neon-projects.sh`:
+
+  ```bash
+  NEON_API_KEY=neon_... NEON_ORG_ID=org-... \
+    bash scripts/create-workshop-neon-projects.sh roster.csv
+  ```
+
+  The script creates one Neon project per row under the org and
+  writes the IDs back into the CSV. `provision-workshop-roster.sh`
+  then forwards each row's `neon_project_id` to the inner
+  provisioner per-row, overriding the cohort env var.
+
+  See #109 for the full deployment-models comparison.
 
 ### Branch types
 

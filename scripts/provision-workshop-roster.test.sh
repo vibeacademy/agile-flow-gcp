@@ -64,7 +64,7 @@ EOF
 #!/usr/bin/env bash
 # Log every invocation along with the env vars the wrapper is supposed
 # to forward. Tests grep this log to verify per-row env passthrough.
-echo "provision \$* GCP_PROJECT_ID=\${GCP_PROJECT_ID:-} GITHUB_USERNAME=\${GITHUB_USERNAME:-} GITHUB_OWNER=\${GITHUB_OWNER:-} GITHUB_REPO=\${GITHUB_REPO:-} NEON_BRANCH_NAME=\${NEON_BRANCH_NAME:-}" >> "$tmp/provision.log"
+echo "provision \$* GCP_PROJECT_ID=\${GCP_PROJECT_ID:-} GITHUB_USERNAME=\${GITHUB_USERNAME:-} GITHUB_OWNER=\${GITHUB_OWNER:-} GITHUB_REPO=\${GITHUB_REPO:-} NEON_BRANCH_NAME=\${NEON_BRANCH_NAME:-} NEON_PROJECT_ID=\${NEON_PROJECT_ID:-}" >> "$tmp/provision.log"
 
 if [[ "$behavior" == "fail" ]]; then
   echo "fake provision failure" >&2
@@ -456,6 +456,100 @@ assert_contains "GITHUB_OWNER=alice-gh.*GITHUB_REPO=agile-flow-gcp" "$T12/provis
 assert_contains "GITHUB_OWNER=bob-gh.*GITHUB_REPO=agile-flow-gcp" "$T12/provision.log" "bob defaults to bob-gh/agile-flow-gcp"
 
 # ── Summary ──────────────────────────────────────────────────────────────
+
+# ── Test 13: 7-column header accepted; per-row neon_project_id forwarded ──
+#
+# #108: workshop facilitators populate the 7th column via
+# create-workshop-neon-projects.sh before running this wrapper. The
+# wrapper must accept the 7-column header and forward each row's
+# neon_project_id as NEON_PROJECT_ID to the inner script (per-row,
+# not from cohort env).
+
+echo ""
+echo "Test 13: 7-column header forwards per-row NEON_PROJECT_ID"
+
+T13=$(new_tmp)
+make_stubs "$T13" "ok"
+cat > "$T13/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo,neon_project_id
+alice,alice-gh,alice@x.com,2026-05,alice,vibeacademy/alice,proj-alice-aaa
+bob,bob-gh,bob@x.com,2026-05,bob,vibeacademy/bob,proj-bob-bbb
+EOF
+
+set +e
+PATH="$T13/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T13/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T13/roster-output.csv" \
+  "$WRAPPER" "$T13/roster.csv" > "$T13/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with 7-column header"
+assert_contains "GCP_PROJECT_ID=af-alice-2026-05.*NEON_PROJECT_ID=proj-alice-aaa" "$T13/provision.log" "alice forwards her per-row project ID"
+assert_contains "GCP_PROJECT_ID=af-bob-2026-05.*NEON_PROJECT_ID=proj-bob-bbb" "$T13/provision.log" "bob forwards his per-row project ID"
+
+# ── Test 14: empty per-row neon_project_id falls back to cohort env var ──
+#
+# Backwards-compat: rows with empty neon_project_id (or 5/6-column rosters)
+# fall back to the cohort-level NEON_PROJECT_ID env var. This preserves
+# the shared-project model for non-workshop-org-hosted setups.
+
+echo ""
+echo "Test 14: empty per-row neon_project_id falls back to NEON_PROJECT_ID env"
+
+T14=$(new_tmp)
+make_stubs "$T14" "ok"
+cat > "$T14/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo,neon_project_id
+alice,alice-gh,alice@x.com,2026-05,alice,vibeacademy/alice,proj-alice-aaa
+carol,carol-gh,carol@x.com,2026-05,carol,vibeacademy/carol,
+EOF
+
+set +e
+PATH="$T14/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  NEON_PROJECT_ID="cohort-shared-proj-zzz" \
+  PROVISION_SCRIPT="$T14/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T14/roster-output.csv" \
+  "$WRAPPER" "$T14/roster.csv" > "$T14/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with mixed per-row IDs"
+# alice: per-row value wins
+assert_contains "GCP_PROJECT_ID=af-alice-2026-05.*NEON_PROJECT_ID=proj-alice-aaa" "$T14/provision.log" "alice's per-row ID overrides env var"
+# carol: empty per-row → fallback to env var
+assert_contains "GCP_PROJECT_ID=af-carol-2026-05.*NEON_PROJECT_ID=cohort-shared-proj-zzz" "$T14/provision.log" "carol's empty per-row falls back to env var"
+
+# ── Test 15: 6-column roster + cohort env var still forwards env var ─────
+#
+# Backwards-compat regression guard: 4/5/6-column rosters never had a
+# neon_project_id column. The wrapper must continue to forward the
+# cohort env var for them, exactly as before.
+
+echo ""
+echo "Test 15: 6-column roster forwards cohort NEON_PROJECT_ID env var"
+
+T15=$(new_tmp)
+make_stubs "$T15" "ok"
+cat > "$T15/roster.csv" <<EOF
+handle,github_user,email,cohort,neon_branch,github_full_repo
+alice,alice-gh,alice@x.com,2026-05,alice,vibeacademy/alice
+EOF
+
+set +e
+PATH="$T15/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  NEON_PROJECT_ID="cohort-shared-proj-zzz" \
+  PROVISION_SCRIPT="$T15/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T15/roster-output.csv" \
+  "$WRAPPER" "$T15/roster.csv" > "$T15/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with 6-column header (regression guard)"
+assert_contains "NEON_PROJECT_ID=cohort-shared-proj-zzz" "$T15/provision.log" "6-column row forwards cohort env var unchanged"
 
 echo ""
 echo "─────────────────────────────────"

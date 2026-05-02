@@ -34,7 +34,7 @@
 #                        (per-project billing budget). Default for workshop
 #                        usage is 25.
 #
-# CSV format (header required, accepts 4, 5, or 6 columns):
+# CSV format (header required, accepts 4, 5, 6, or 7 columns):
 #   handle,github_user,email,cohort
 #   alice,alice-gh,alice@example.com,2026-05
 #   bob,bob-gh,bob@example.com,2026-05
@@ -47,6 +47,16 @@
 #   alice,alice-gh,alice@acme.com,2026-05,alice,acme/agile-flow-alice
 #   bob,bob-gh,bob@acme.com,2026-05,bob,acme/widget-shop
 #   carol,carol-gh,carol@example.com,2026-05,carol,                (defaults)
+#
+#   handle,github_user,email,cohort,neon_branch,github_full_repo,neon_project_id (7)
+#   alice,alice-gh,alice@acme.com,2026-05,alice,acme/agile-flow-alice,proj-alice-123
+#   bob,bob-gh,bob@acme.com,2026-05,bob,acme/widget-shop,proj-bob-456
+#
+# In the 7-column variant, the per-row `neon_project_id` overrides the
+# cohort-level NEON_PROJECT_ID env var. This enables the per-attendee
+# Neon project model (#108) — populate the column via
+# `scripts/create-workshop-neon-projects.sh` before running this wrapper.
+# Empty `neon_project_id` falls back to the env var (cohort-shared model).
 #
 # When the optional `neon_branch` column is empty or absent, NEON_BRANCH_NAME
 # defaults to the row's `handle`. Use the override when the same person needs
@@ -145,15 +155,18 @@ fi
 EXPECTED_HEADER_4="handle,github_user,email,cohort"
 EXPECTED_HEADER_5="handle,github_user,email,cohort,neon_branch"
 EXPECTED_HEADER_6="handle,github_user,email,cohort,neon_branch,github_full_repo"
+EXPECTED_HEADER_7="handle,github_user,email,cohort,neon_branch,github_full_repo,neon_project_id"
 ACTUAL_HEADER="$(head -n 1 "$ROSTER_CSV" | tr -d '\r')"
 
 if [[ "$ACTUAL_HEADER" != "$EXPECTED_HEADER_4" \
    && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_5" \
-   && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_6" ]]; then
+   && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_6" \
+   && "$ACTUAL_HEADER" != "$EXPECTED_HEADER_7" ]]; then
   echo "ERROR: roster CSV header must be one of:" >&2
   echo "       $EXPECTED_HEADER_4" >&2
   echo "       $EXPECTED_HEADER_5" >&2
   echo "       $EXPECTED_HEADER_6" >&2
+  echo "       $EXPECTED_HEADER_7" >&2
   echo "       got: $ACTUAL_HEADER" >&2
   exit 2
 fi
@@ -175,9 +188,9 @@ skipped=0
 # tail -n +2 skips header. Process substitution avoids subshell so counters
 # survive into the summary block.
 #
-# We read 6 fields. 4- and 5-column rows leave the trailing fields empty;
-# the default-fallback logic below covers them.
-while IFS=',' read -r handle github_user email cohort neon_branch github_full_repo; do
+# We read 7 fields. 4-, 5-, and 6-column rows leave the trailing fields
+# empty; the default-fallback logic below covers them.
+while IFS=',' read -r handle github_user email cohort neon_branch github_full_repo row_neon_project_id; do
   # Strip whitespace and CR (Windows line endings)
   handle="$(echo "$handle" | tr -d '[:space:]\r')"
   github_user="$(echo "$github_user" | tr -d '[:space:]\r')"
@@ -185,6 +198,7 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   cohort="$(echo "$cohort" | tr -d '[:space:]\r')"
   neon_branch="$(echo "${neon_branch:-}" | tr -d '[:space:]\r')"
   github_full_repo="$(echo "${github_full_repo:-}" | tr -d '[:space:]\r')"
+  row_neon_project_id="$(echo "${row_neon_project_id:-}" | tr -d '[:space:]\r')"
 
   if [[ -z "$handle" || -z "$cohort" ]]; then
     continue
@@ -254,9 +268,17 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   # for any external caller still relying on that env-var name.
   #
   # NEON_BRANCH_NAME enables the Neon-branch-per-attendee step (5.7).
-  # NEON_API_KEY and NEON_PROJECT_ID are forwarded only if set in the
-  # facilitator's environment; the inner script skips that step when
-  # either is missing.
+  # NEON_API_KEY and NEON_PROJECT_ID are forwarded only if set; the
+  # inner script skips Step 5.7 when either is missing.
+  #
+  # Per-row override (#108): when the 7-column roster has a non-empty
+  # neon_project_id, use it for THIS attendee instead of the cohort
+  # env var. Falls back to the env var when the cell is empty (5/6-col
+  # rosters and 7-col rows with no project assigned yet). This is what
+  # enables the per-attendee Neon project model — each attendee's
+  # project ID is their own.
+  effective_neon_project_id="${row_neon_project_id:-${NEON_PROJECT_ID:-}}"
+
   GCP_PROJECT_ID="$project_id" \
   BILLING_ACCOUNT_ID="$BILLING_ACCOUNT_ID" \
   GCP_REGION="${GCP_REGION:-us-central1}" \
@@ -267,7 +289,7 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
   GITHUB_REPOSITORY="$github_full_repo" \
   NEON_BRANCH_NAME="$neon_branch" \
   NEON_API_KEY="${NEON_API_KEY:-}" \
-  NEON_PROJECT_ID="${NEON_PROJECT_ID:-}" \
+  NEON_PROJECT_ID="$effective_neon_project_id" \
   NEON_FORCE_SHARED_PARENT="$FORCE_SHARED_PARENT" \
   BUDGET_CAP_USD="${BUDGET_CAP_USD:-}" \
     "$PROVISION_SCRIPT" --create-project
