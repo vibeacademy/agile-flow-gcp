@@ -25,7 +25,48 @@ and will have to be rewritten.
 
 ### 1. GitHub Project Board Setup
 
-Verify or create project board with columns:
+> **Order matters.** The board must be created at the right scope (org vs
+> user) for your fork. User-scoped projects cannot natively discover
+> org-owned repos, which silently breaks the bulk "Add items from a
+> repository" flow AND the Step 2 auto-add workflow. Get this wrong and
+> every issue requires manual paste-by-URL for the lifetime of the
+> project. (#118)
+
+**First, detect your fork's ownership type:**
+
+```bash
+gh repo view --json isInOrganization --jq '.isInOrganization'
+# → true   (workshop default — vibeacademy/<handle>)
+# → false  (personal-fork default — <username>/<repo>)
+```
+
+**Then create the board at the matching scope:**
+
+| Detection output | Create board at | Board can natively discover repo? |
+|------------------|-----------------|-----------------------------------|
+| `true`  (org-owned)  | `https://github.com/orgs/<org>/projects/new` | Yes — bulk import + auto-add both work |
+| `false` (user-owned) | `https://github.com/users/<user>/projects/new` | No for cross-account repos — manual URL-paste only |
+
+**Permission fallback (org-owned fork without org-project-create permission):**
+
+If your fork is at `<org>/<repo>` but the org's project-creation policy
+restricts you (typical for workshop attendees on `vibeacademy/<handle>`
+where only the facilitator has org-admin), you have three options:
+
+1. **Ask the facilitator** to create the org-scoped project and grant
+   you write on it (recommended for workshop — preserves bulk import
+   + auto-add)
+2. **Fall back to user-scoped** at `https://github.com/users/<you>/projects/new`
+   and accept the limitation: the board will not discover your org repo
+   for bulk import, and Step 2's auto-add workflow cannot be enabled
+   for cross-account repos. Every new issue must be manually pasted
+   into the Backlog column input row.
+3. **Move the fork to your personal account** (`gh repo transfer`) and
+   create the user-scoped board — only viable if the org doesn't need
+   to retain ownership
+
+**Verify or create the project board with these columns:**
+
 - **Icebox** - Ideas not yet prioritized
 - **Backlog** - Prioritized but not ready
 - **Ready** - Well-defined, ready to work (2-5 items)
@@ -53,14 +94,16 @@ Two workflows to enable in the same UI panel:
   manually drags it. The framework's "only humans move to Done" rule
   is honored either way; this just removes the per-merge step.
 
-**Manual UI toggle (recommended):**
+**Manual UI toggle (recommended) — pick the path matching your Step 1 board scope:**
+
+#### Path A: Org-scoped board (recommended — works fully)
 
 1. Open the project: `https://github.com/orgs/<org>/projects/<N>`
-   (or the user-scoped equivalent)
 2. Click **⋯** (top-right) → **Workflows**
 3. **Enable Auto-add to project:**
    - Find **"Auto-add to project"**
-   - Set **Repository** = the repo this board serves
+   - Set **Repository** = the repo this board serves (the picker
+     will show all repos in `<org>` you have access to)
    - Set **Filter** = `is:issue` (or leave empty to include PRs too)
    - Toggle **Enabled**
    - Click **Save and turn on workflow**
@@ -70,6 +113,32 @@ Two workflows to enable in the same UI panel:
    - Set **Set Status** = `Done`
    - Toggle **Enabled**
    - Click **Save and turn on workflow**
+
+#### Path B: User-scoped board with cross-account org-owned repo (limited)
+
+If you fell back to a user-scoped board (Step 1, option 2 of the
+permission fallback), the **Auto-add to project** workflow is NOT
+configurable for cross-account repos — the **Repository** picker
+only lists repos owned by the project owner (you). This is a
+GitHub Projects v2 platform limitation, not a configuration mistake.
+
+What still works:
+
+1. Open the project: `https://github.com/users/<you>/projects/<N>`
+2. Click **⋯** (top-right) → **Workflows**
+3. **Enable Item closed → Done** (this one IS configurable for any
+   linked issue, regardless of repo owner — same steps as Path A
+   step 4 above)
+4. **Auto-add: skip.** Every new issue from your org-owned fork
+   must be manually pasted into the Backlog column input row.
+   Step 4 below documents the workflow.
+
+#### Path C: User-scoped board with same-owner repo (works fully)
+
+If both the project and the repo are owned by the same personal
+account (e.g. `<you>/<your-repo>` with a board at
+`/users/<you>/projects/<N>`), follow Path A's steps but use the
+user-scoped project URL.
 
 **Why not via API:** GitHub's GraphQL exposes `projectV2.workflows`
 for read and `deleteProjectV2Workflow` for removal, but no
