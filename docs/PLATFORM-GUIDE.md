@@ -479,7 +479,6 @@ auth paths:
 |---------------------------|----------------------|
 | Local dev machine | Shell rc (`set -x ANTHROPIC_API_KEY ...` in fish, `export ANTHROPIC_API_KEY=...` in bash/zsh) — or just use OAuth |
 | GitHub Codespace | **Codespaces secret** (NOT Actions secret — see below) |
-| CI / GitHub Actions workflow | Repository **Actions** secret, exposed via `env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}` |
 
 **Critical distinction for Codespaces:**
 
@@ -502,10 +501,14 @@ repos. This pushes the cost to the facilitator's Anthropic
 billing in exchange for zero per-attendee setup. See #104 for
 the research on this model.
 
-**For CI:** the `ANTHROPIC_API_KEY` consumed by `auto-fix.yml`,
-`auto-review.yml`, and `auto-triage.yml` workflows IS an Actions
-secret. The two stores are independent — set both if you need
-Claude Code in both Codespaces and CI.
+**If you wire Claude into a CI workflow** (none of the framework's
+shipped workflows currently do — `auto-review.yml`, `auto-fix.yml`,
+and `auto-triage.yml` are trigger scaffolding that post comments
+inviting the user to invoke `/review-pr` etc. locally; they do not
+call the Anthropic API), the `ANTHROPIC_API_KEY` your custom
+workflow consumes IS an Actions secret. The two stores are
+independent — set both if your fork ends up needing Claude Code
+in both Codespaces and CI.
 
 ---
 
