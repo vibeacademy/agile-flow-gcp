@@ -35,17 +35,17 @@ and will have to be rewritten.
 **First, detect your fork's ownership type:**
 
 ```bash
-gh repo view --json owner --jq '.owner.type'
-# → Organization  (workshop default — vibeacademy/<handle>)
-# → User          (personal-fork default — <username>/<repo>)
+gh repo view --json isInOrganization --jq '.isInOrganization'
+# → true   (workshop default — vibeacademy/<handle>)
+# → false  (personal-fork default — <username>/<repo>)
 ```
 
 **Then create the board at the matching scope:**
 
-| Ownership | Create board at | Board can natively discover repo? |
-|-----------|-----------------|-----------------------------------|
-| `Organization` | `https://github.com/orgs/<org>/projects/new` | Yes — bulk import + auto-add both work |
-| `User` | `https://github.com/users/<user>/projects/new` | No for cross-account repos — manual URL-paste only |
+| Detection output | Create board at | Board can natively discover repo? |
+|------------------|-----------------|-----------------------------------|
+| `true`  (org-owned)  | `https://github.com/orgs/<org>/projects/new` | Yes — bulk import + auto-add both work |
+| `false` (user-owned) | `https://github.com/users/<user>/projects/new` | No for cross-account repos — manual URL-paste only |
 
 **Permission fallback (org-owned fork without org-project-create permission):**
 
