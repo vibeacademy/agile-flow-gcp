@@ -85,8 +85,8 @@ for you, identically across all attendees.
    - If your Codespace is already running, restart it so the new
      secret is picked up.
 
-   Then open the integrated terminal (`Ctrl+` `) and run `claude`.
-   You should land directly in an agent session. If Claude Code
+   Then open the integrated terminal (Ctrl+backtick) and run
+   `claude`. You should land directly in an agent session. If Claude Code
    prompts you to authenticate via browser, the secret isn't
    reaching the Codespace — see the FAQ entry above. The browser
    flow still works as a fallback if you'd rather not configure
