@@ -151,6 +151,47 @@ before they leave your machine.
 
 ---
 
+## "Why is Claude Code asking me to log in via browser in my Codespace?"
+
+Claude Code authenticates from `ANTHROPIC_API_KEY` in env if it's
+set. If it's not set, Claude Code falls back to an OAuth browser
+flow. The browser flow works but it's awkward in a Codespace
+(extra clicks, port-forward roundtrip) and there's a faster path:
+
+**Set `ANTHROPIC_API_KEY` as a *Codespaces* secret (not an Actions
+secret).** GitHub has two separate secret stores:
+
+| Secret type | Where it appears | Visible to Codespaces? |
+|-------------|------------------|------------------------|
+| **Codespaces** secret | Settings → Codespaces → Codespaces secrets | Yes — injected as env var |
+| **Actions** secret | Settings → Secrets and variables → Actions | No — only visible to workflow runs |
+
+If you set `ANTHROPIC_API_KEY` as an Actions secret, Claude Code
+in your Codespace terminal won't see it (the env var simply isn't
+there) and will fall back to the OAuth browser flow.
+
+**Fix:**
+
+1. Open `https://github.com/settings/codespaces`
+2. Click **New secret** under "Codespaces secrets"
+3. Name: `ANTHROPIC_API_KEY`. Value: a key from
+   `https://console.anthropic.com/settings/keys`
+4. **Repository access:** select your fork
+5. Restart your Codespace so the new env var is injected
+6. Run `claude` again — should land directly in a session, no browser
+
+**For workshop facilitators** who want to fund attendees' API
+usage centrally, set `ANTHROPIC_API_KEY` as a **Codespaces org
+secret** scoped to the cohort's repos instead of asking each
+attendee to bring their own. See `docs/PLATFORM-GUIDE.md` →
+"Anthropic API key (Claude Code authentication)" and #104.
+
+The browser flow remains a perfectly fine fallback if you don't
+want to manage a Codespaces secret. It just takes one extra step
+each time the Codespace cold-starts.
+
+---
+
 ## "How do I see my preview environment?"
 
 A **preview environment** is a temporary, live version of your app that is
