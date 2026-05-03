@@ -153,7 +153,15 @@ for entry in "${CANONICAL_LABELS[@]}"; do
     IFS='|' read -r name color description <<< "$entry"
 
     # Look up the existing label (if any) via gh api.
-    existing=$(gh api "repos/${REPO}/labels/${name}" 2>/dev/null || true)
+    # Note: gh api writes the JSON error body to stdout on HTTP errors
+    # (404, 403, etc.) — it does NOT exit with empty stdout. Check the
+    # exit code and capture stdout separately so a 404 produces empty
+    # `existing`, not the error body.
+    if existing=$(gh api "repos/${REPO}/labels/${name}" 2>/dev/null); then
+        : # success — existing holds the label JSON
+    else
+        existing=""
+    fi
 
     if [ -z "$existing" ]; then
         # Label does not exist: create.

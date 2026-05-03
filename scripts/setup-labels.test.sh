@@ -108,7 +108,14 @@ if [[ "$1" == "api" ]]; then
 
         case "$effective_state" in
             missing)
-                # 404 — non-zero exit, no output (mirrors `gh api` behavior)
+                # 404 — gh api writes the JSON error body to STDOUT (not just
+                # stderr) AND exits 1. Pre-#128 the stub returned "no output,
+                # exit 1" which let the script's wrong `var=$(... || true) &&
+                # [ -z "$var" ]` pattern pass tests but fail in production.
+                # Now mirror real gh behavior: emit the body to stdout, exit 1.
+                cat <<'JSON'
+{"message":"Not Found","documentation_url":"https://docs.github.com/rest/issues/labels#get-a-label","status":"404"}
+JSON
                 exit 1
                 ;;
             canonical)
@@ -222,6 +229,17 @@ assert_not_contains() {
 }
 
 # ── Test 1: All labels missing → 5 creates, exit 0 ────────────────────
+#
+# Regression guard for #128: when the gh stub returns a 404 JSON body on
+# stdout AND exits 1, the script must take the CREATE path (not the
+# UPDATE path). Pre-#128 the script used `existing=$(gh api ... 2>/dev/null
+# || true)` and then `[ -z "$existing" ]` to detect "label missing" — but
+# with realistic gh behavior, `existing` contained the 404 JSON, the
+# emptiness check failed, and the script wrongly tried PATCH instead of
+# POST. Every label appeared as "Failed to update" with a misleading
+# "missing admin/write permission" diagnosis. Fix: capture the gh exit
+# code separately via `if existing=$(gh api ...); then ... else
+# existing=""; fi`.
 
 echo ""
 echo "Test 1: empty repo (all labels missing) → creates all 5"
