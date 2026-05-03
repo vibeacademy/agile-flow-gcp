@@ -151,6 +151,43 @@ before they leave your machine.
 
 ---
 
+## "Why does `/groom-backlog` fail with 'Resource not accessible by integration' even though my PAT has the project scope?"
+
+You probably have a **fine-grained PAT** and the org you're trying to
+manage hasn't allowlisted it. Two separate things have to be true for
+fine-grained PATs to work on org-level Project v2 boards:
+
+1. Your PAT has the right Permissions (`Projects: read/write`,
+   `Contents: read/write`, etc.)
+2. The **org admin** has enabled "Allow access via fine-grained personal
+   access tokens" in the org's **Settings → Personal access tokens**
+   policy AND specifically allowed your PAT (or all PATs)
+
+Most workshop attendees don't admin the `vibeacademy` org and can't
+toggle that policy. Hence the symptom — your PAT looks correctly
+scoped, but it silently fails on every org-board mutation with
+`Resource not accessible by integration`.
+
+**Two fixes:**
+
+1. **(Recommended for workshop attendees)** Switch to a **classic PAT**
+   instead. Classic PATs bypass the allowlist entirely. Generate one at
+   <https://github.com/settings/tokens> with `repo`, `project`,
+   `workflow`, `read:org`. Update your `GH_TOKEN` Codespaces secret with
+   the new value. Restart your Codespace.
+2. **(If you are the org admin)** Enable the org-level allowlist policy
+   at `https://github.com/organizations/<org>/settings/personal-access-tokens`,
+   and approve your PAT in the resulting list.
+
+The framework recommends classic for workshop attendees specifically
+because option 2 requires org-admin access that workshop attendees
+don't have. For solo developers on their own forks, fine-grained is
+the better long-term choice (least-privilege, repo-scoped). See
+`docs/GETTING-STARTED.md` "GitHub personal access token" section for
+the full classic-vs-fine-grained walkthrough.
+
+---
+
 ## "Why is Claude Code asking me to log in via browser in my Codespace?"
 
 Claude Code authenticates from `ANTHROPIC_API_KEY` in env if it's
