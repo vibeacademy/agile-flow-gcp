@@ -338,6 +338,7 @@ return success signals while doing the wrong thing.
 - [ ] Does the feature work end-to-end?
 - [ ] Is the code appropriately documented?
 - [ ] Do all tests pass?
+- [ ] **Are literal framework-state claims empirically verified?** If the diff includes a literal CLI command, file path, workflow filename, or framework-hook semantics claim, run the verification action before submitting. See `.claude/agents/pr-reviewer.md` → "Empirical Verification of Literal Framework-State Claims" for the four trigger categories and verification actions. The reviewer agent applies the same rule and will NO-GO any unverified claim that fails empirical check — catching it pre-submit saves a review round.
 
 ### Verification Steps:
 Refer to CLAUDE.md for project-specific verification commands.
