@@ -66,11 +66,32 @@ for you, identically across all attendees.
 2. Wait ~60 seconds for the container to provision.
 3. Run `gcloud auth login` in the integrated terminal to authenticate
    with GCP (browser OAuth flow).
-4. The Claude Code extension is preinstalled. To start your first
-   agent session, open the integrated terminal (`Ctrl+` `) and run
-   `claude`. On first run you'll be prompted to authenticate via a
-   browser flow — this is your **Anthropic account**, separate from
-   the GitHub and Google Cloud auths above.
+4. The Claude Code extension is preinstalled. **Before starting an
+   agent session, set your Anthropic API key as a Codespaces secret
+   so Claude Code authenticates from env without a browser flow:**
+   - Open `https://github.com/settings/codespaces` → **Codespaces
+     secrets** → **New secret**
+   - Name: `ANTHROPIC_API_KEY`. Value: a key from
+     `https://console.anthropic.com/settings/keys`
+   - **Repository access:** select your fork (e.g.
+     `your-name/my-app`). The secret will only be injected into
+     Codespaces launched on that repo.
+   - **Important:** this MUST be a *Codespaces* secret, NOT a repo
+     **Actions** secret. Actions secrets are scoped to GitHub
+     workflow runs and are not injected into Codespaces — setting
+     `ANTHROPIC_API_KEY` there won't help Claude Code in your
+     terminal. (See FAQ: "Why is Claude Code asking me to log in
+     via browser in my Codespace?")
+   - If your Codespace is already running, restart it so the new
+     secret is picked up.
+
+   Then open the integrated terminal (`Ctrl+` `) and run `claude`.
+   You should land directly in an agent session. If Claude Code
+   prompts you to authenticate via browser, the secret isn't
+   reaching the Codespace — see the FAQ entry above. The browser
+   flow still works as a fallback if you'd rather not configure
+   the secret (this is your **Anthropic account**, separate from
+   the GitHub and Google Cloud auths above).
 5. Skip to **Step 2: Set Up GitHub Access** below — except gh is
    already authenticated, so you can skip Step 2 entirely.
 

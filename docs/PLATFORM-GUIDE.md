@@ -403,6 +403,12 @@ gh state across the user's terminals; #82). The hook
 (`.claude/hooks/ensure-github-account.sh`) short-circuits on
 `AGILE_FLOW_SOLO_MODE=true` and no longer tries to switch accounts.
 
+**Anthropic API key:** Claude Code in a Codespace authenticates
+from `ANTHROPIC_API_KEY` if set, or falls back to OAuth otherwise.
+For Codespaces this MUST be a Codespaces secret, not an Actions
+secret — see "Anthropic API key (Claude Code authentication)"
+below.
+
 ### Multi-bot mode (production)
 
 Separate worker + reviewer bot accounts plus a human merger.
@@ -429,6 +435,11 @@ operations (issue create, label create, branch protection) require
 the agent to verify the active account and STOP if wrong — never
 switch from agent context (#82).
 
+**Anthropic API key:** same requirement as solo mode — Claude
+Code reads `ANTHROPIC_API_KEY` from env. For Codespaces this MUST
+be a Codespaces secret, not an Actions secret. See "Anthropic API
+key (Claude Code authentication)" below for the full distinction.
+
 ### Choosing between them
 
 Choose based on use case, not phase. Workshop attendees stay in solo
@@ -446,6 +457,55 @@ bot-account separation — every PR and review is attributed to the
 single personal account. For learning environments and small teams,
 this is fine. For production at scale, multi-bot's clarity is
 worth the setup cost.
+
+### Anthropic API key (Claude Code authentication)
+
+Both solo and multi-bot modes need Claude Code to authenticate
+inside whatever environment the agents run in. There are two
+auth paths:
+
+1. **API key (recommended for Codespaces and CI-like flows)** —
+   Claude Code reads `ANTHROPIC_API_KEY` from env and starts
+   sessions immediately, no browser flow needed.
+2. **OAuth browser flow (fallback)** — Claude Code opens a browser
+   on first run to authenticate against your Anthropic account.
+   Works on local dev machines but is awkward in Codespaces
+   (requires port-forwarding the OAuth callback) and impossible
+   in headless CI.
+
+**Where to set `ANTHROPIC_API_KEY`:**
+
+| Where you run Claude Code | Where to set the key |
+|---------------------------|----------------------|
+| Local dev machine | Shell rc (`set -x ANTHROPIC_API_KEY ...` in fish, `export ANTHROPIC_API_KEY=...` in bash/zsh) — or just use OAuth |
+| GitHub Codespace | **Codespaces secret** (NOT Actions secret — see below) |
+| CI / GitHub Actions workflow | Repository **Actions** secret, exposed via `env: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}` |
+
+**Critical distinction for Codespaces:**
+
+GitHub has two separate secret stores: **Actions secrets** (scoped
+to workflow runs only) and **Codespaces secrets** (injected as
+env vars into running Codespaces). Setting `ANTHROPIC_API_KEY`
+as an Actions secret will NOT make it available to Claude Code
+in a Codespace — the env var won't exist, and Claude Code will
+fall through to the OAuth browser flow.
+
+**For workshop attendees:** set `ANTHROPIC_API_KEY` as a
+**Codespaces user secret** at `https://github.com/settings/codespaces`
+and scope it to your fork. See `docs/GETTING-STARTED.md` Path A
+step 4 for the click-by-click.
+
+**For workshop facilitators (org-funded BYOK):** instead of each
+attendee setting their own key, you can configure a **Codespaces
+org secret** on `vibeacademy` scoped to the cohort's attendee
+repos. This pushes the cost to the facilitator's Anthropic
+billing in exchange for zero per-attendee setup. See #104 for
+the research on this model.
+
+**For CI:** the `ANTHROPIC_API_KEY` consumed by `auto-fix.yml`,
+`auto-review.yml`, and `auto-triage.yml` workflows IS an Actions
+secret. The two stores are independent — set both if you need
+Claude Code in both Codespaces and CI.
 
 ---
 
