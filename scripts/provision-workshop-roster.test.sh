@@ -811,6 +811,204 @@ set -e
 assert_eq "0" "$exit_code" "wrapper exits 0"
 assert_contains "template myfork/agile-flow-gcp" "$T20/gh.log" "custom template forwarded"
 
+# ── Test 21: bot accounts get push grants when env vars are set (#140) ──
+#
+# When AGILE_FLOW_WORKER_ACCOUNT and AGILE_FLOW_REVIEWER_ACCOUNT are set
+# AND --workshop-org is in use, the wrapper should:
+#   - Check current permission for each bot (idempotency probe)
+#   - Issue PUT collaborators invite for each bot (since stub returns "none")
+#   - Switch to each bot to accept the invite
+#   - PATCH /user/repository_invitations/<id> to accept
+#   - Switch back to facilitator
+
+echo ""
+echo "Test 21: bot accounts get push grants when env vars are set (#140)"
+
+T21=$(new_tmp)
+make_stubs "$T21" "ok"
+
+# gh stub: handles the full bot-grant flow.
+#   - repo view returns 1 (doesn't exist, so create runs)
+#   - permission probe returns "none" (so PUT runs)
+#   - api user returns "facilitator"
+#   - auth switch succeeds
+#   - repository_invitations returns one invite ID
+cat > "$T21/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T21/gh.log"
+case "\$*" in
+  "repo view "*) exit 1 ;;
+  "repo create "*) exit 0 ;;
+  *"collaborators/"*"/permission"*) echo "none" ;;
+  *"-X PUT repos/"*"collaborators/"*) exit 0 ;;
+  "api user "*) echo "facilitator" ;;
+  "auth switch --user "*) exit 0 ;;
+  *"repository_invitations"*"--jq"*) echo "98765" ;;
+  *"-X PATCH /user/repository_invitations/"*) exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T21/bin/gh"
+
+cat > "$T21/roster.csv" <<EOF
+handle,github_user,email,cohort
+alice,alice-gh,alice@x.com,2026-05
+EOF
+
+set +e
+PATH="$T21/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T21/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T21/roster-output.csv" \
+  GH_REPO_CREATE="$T21/bin/gh" \
+  AGILE_FLOW_WORKER_ACCOUNT="va-worker" \
+  AGILE_FLOW_REVIEWER_ACCOUNT="va-reviewer" \
+  "$WRAPPER" "$T21/roster.csv" --workshop-org=vibeacademy > "$T21/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with bot-grant env vars set"
+# Permission probe ran for both bots
+assert_contains "collaborators/va-worker/permission" "$T21/gh.log" "worker permission probed"
+assert_contains "collaborators/va-reviewer/permission" "$T21/gh.log" "reviewer permission probed"
+# PUT invite issued for both bots
+assert_contains "PUT repos/vibeacademy/alice/collaborators/va-worker" "$T21/gh.log" "worker invited via PUT"
+assert_contains "PUT repos/vibeacademy/alice/collaborators/va-reviewer" "$T21/gh.log" "reviewer invited via PUT"
+# Auth switch + PATCH invite-accept happened for each bot
+assert_contains "auth switch --user va-worker" "$T21/gh.log" "switched to worker bot"
+assert_contains "auth switch --user va-reviewer" "$T21/gh.log" "switched to reviewer bot"
+assert_contains "PATCH /user/repository_invitations/98765" "$T21/gh.log" "invite accepted via PATCH"
+
+# ── Test 22: bot-grant skipped silently when env vars unset (solo mode) ──
+#
+# Solo-mode compatibility: when AGILE_FLOW_WORKER_ACCOUNT and
+# AGILE_FLOW_REVIEWER_ACCOUNT are both unset, the wrapper must NOT
+# attempt any collaborator/invitation API calls — solo-mode users have
+# no bot accounts to invite.
+
+echo ""
+echo "Test 22: bot-grant skipped silently when env vars unset (solo mode)"
+
+T22=$(new_tmp)
+make_stubs "$T22" "ok"
+
+cat > "$T22/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T22/gh.log"
+case "\$1 \$2" in
+  "repo view") exit 1 ;;
+  "repo create") exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T22/bin/gh"
+
+cat > "$T22/roster.csv" <<EOF
+handle,github_user,email,cohort
+alice,alice-gh,alice@x.com,2026-05
+EOF
+
+set +e
+# Explicitly UNSET bot env vars (override anything in the parent env)
+PATH="$T22/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T22/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T22/roster-output.csv" \
+  GH_REPO_CREATE="$T22/bin/gh" \
+  AGILE_FLOW_WORKER_ACCOUNT="" \
+  AGILE_FLOW_REVIEWER_ACCOUNT="" \
+  "$WRAPPER" "$T22/roster.csv" --workshop-org=vibeacademy > "$T22/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 with bot env vars unset"
+# repo create still runs (this is the workshop-org path)
+assert_contains "gh repo create vibeacademy/alice" "$T22/gh.log" "repo create still runs"
+# But NO collaborator-related calls
+if grep -q "collaborators" "$T22/gh.log"; then
+  echo -e "  ${RED}✗${NC} collaborator API called despite bot env vars unset (solo-mode broken)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} no collaborator API calls when bot env vars unset (solo-mode OK)"
+  PASS=$((PASS + 1))
+fi
+if grep -q "repository_invitations" "$T22/gh.log"; then
+  echo -e "  ${RED}✗${NC} repository_invitations API called despite bot env vars unset"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} no repository_invitations API calls when bot env vars unset"
+  PASS=$((PASS + 1))
+fi
+
+# ── Test 23: bot-grant idempotent when bot already has push (#140) ──────
+#
+# Re-running provisioning on a roster row whose attendee repo already
+# exists AND already has the bot as a write collaborator must be a
+# no-op for the grant step — no duplicate PUT, no duplicate PATCH.
+
+echo ""
+echo "Test 23: bot-grant idempotent — skip PUT/PATCH when bot already has write"
+
+T23=$(new_tmp)
+make_stubs "$T23" "ok"
+
+# gh stub: permission probe returns "write" → grant_push_to_bot returns early
+cat > "$T23/bin/gh" <<EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$T23/gh.log"
+case "\$*" in
+  "repo view "*) exit 1 ;;
+  "repo create "*) exit 0 ;;
+  *"collaborators/"*"/permission"*) echo "write" ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod +x "$T23/bin/gh"
+
+cat > "$T23/roster.csv" <<EOF
+handle,github_user,email,cohort
+alice,alice-gh,alice@x.com,2026-05
+EOF
+
+set +e
+PATH="$T23/bin:$PATH" \
+  BILLING_ACCOUNT_ID="FAKE-BILLING" \
+  PROVISION_SCRIPT="$T23/bin/provision-gcp-project.sh" \
+  OUTPUT_CSV="$T23/roster-output.csv" \
+  GH_REPO_CREATE="$T23/bin/gh" \
+  AGILE_FLOW_WORKER_ACCOUNT="va-worker" \
+  AGILE_FLOW_REVIEWER_ACCOUNT="va-reviewer" \
+  "$WRAPPER" "$T23/roster.csv" --workshop-org=vibeacademy > "$T23/stdout.log" 2>&1
+exit_code=$?
+set -e
+
+assert_eq "0" "$exit_code" "wrapper exits 0 on idempotent re-run"
+# Permission probe DID run (that's how we detected the existing grant)
+assert_contains "collaborators/va-worker/permission" "$T23/gh.log" "worker permission probed"
+# But NO PUT or PATCH (those would mean we re-issued the invite)
+if grep -q "PUT repos/.*collaborators" "$T23/gh.log"; then
+  echo -e "  ${RED}✗${NC} PUT collaborators called despite existing write grant (not idempotent)"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} no PUT collaborators call when bot already has write (idempotent)"
+  PASS=$((PASS + 1))
+fi
+if grep -q "PATCH /user/repository_invitations" "$T23/gh.log"; then
+  echo -e "  ${RED}✗${NC} PATCH invitation called despite existing write grant"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} no PATCH invitation call when bot already has write"
+  PASS=$((PASS + 1))
+fi
+# auth switch should also be skipped (no need to switch when we already returned 0 from grant)
+if grep -q "auth switch --user va-" "$T23/gh.log"; then
+  echo -e "  ${RED}✗${NC} auth switch called despite existing write grant"
+  FAIL=$((FAIL + 1))
+else
+  echo -e "  ${GREEN}✓${NC} no auth switch when bot already has write (idempotent path early-returns)"
+  PASS=$((PASS + 1))
+fi
+
 echo ""
 echo "─────────────────────────────────"
 echo "  Passed: $PASS"
