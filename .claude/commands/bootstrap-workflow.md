@@ -266,11 +266,33 @@ to the user if any check fails — do not continue with partial tooling.
 3. **Token scopes sufficient for board operations** — Run the probe:
    `gh api graphql -f query='{ viewer { projectsV2(first:1) { totalCount } } }'`
    If this fails with `Resource not accessible by integration`, the active
-   token lacks the `project` scope. STOP with a clear remediation message:
-   in a Codespace, configure a `GH_TOKEN` Codespaces user secret with a
-   fine-grained PAT carrying `project`, `repo`, `workflow`, `read:org` scopes
-   (see the pre-workshop email or `agile-flow-meta:docs/workshops/`); on a
-   local clone, run `gh auth refresh -h github.com -s project,read:project`.
+   token lacks the `project` scope. STOP with a clear remediation message
+   matching the user's setup:
+
+   **In a Codespace** — configure a `GH_TOKEN` Codespaces user secret. Two
+   PAT-type paths:
+
+   - **Classic PAT (recommended for workshop attendees on `vibeacademy/<handle>`)** —
+     create at `https://github.com/settings/tokens` → "Generate new token (classic)"
+     with scopes: `repo, project, workflow, read:org`. Works on org-level
+     Project v2 boards immediately, no org-admin involvement needed.
+   - **Fine-grained PAT (recommended for solo developers on their own orgs)** —
+     create at `https://github.com/settings/personal-access-tokens` with
+     `Repository access: <your fork>` and permissions `Contents: read/write,
+     Pull requests: read/write, Workflows: read/write, Projects: read/write,
+     Metadata: read`. **Org-admin allowlist required:** if your fork is
+     under an org you don't admin (typical for workshop attendees on
+     `vibeacademy`), the org's Settings → Personal access tokens policy
+     must enable "Allow access via fine-grained personal access tokens"
+     for your PAT to work. Without that allowlist, the same `Resource not
+     accessible by integration` error fires even though your PAT lists the
+     right permissions. Workshop attendees should use the classic-PAT path
+     above to bypass this org-admin step entirely.
+
+   See `docs/GETTING-STARTED.md` for the click-by-click and `docs/FAQ.md`
+   for the "Resource not accessible by integration" symptom guide.
+
+   **On a local clone** — run `gh auth refresh -h github.com -s project,read:project`.
 4. **Claude hooks are registered** — Check that hook files referenced in
    `.claude/settings.local.json` exist and are executable. WARN if any hook is
    missing or not executable.

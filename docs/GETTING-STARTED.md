@@ -24,12 +24,54 @@ skip to Step 1.
    Sign up at <https://github.com>.
 
 You will also need a **GitHub personal access token** so the tools can
-talk to GitHub on your behalf. To create one:
+talk to GitHub on your behalf — `gh` CLI uses it for issue/PR operations,
+and `/groom-backlog` uses it for project-board mutations.
+
+**Two PAT-type paths. Pick one:**
+
+### Classic PAT (recommended for workshop attendees)
+
+This is the simpler path — it works on org-level Project v2 boards
+immediately without any org-admin involvement. Use this if your fork
+is under an organization you do not administer (e.g. workshop
+attendees on `vibeacademy/<handle>`).
 
 1. Go to <https://github.com/settings/tokens>.
 2. Click **"Generate new token (classic)"**.
-3. Check the `repo`, `project`, and `workflow` boxes.
+3. Check `repo`, `project`, `workflow`, **and `read:org`**. (`read:org`
+   is needed so the GraphQL pre-flight probe can query org-scoped
+   Project v2 boards.)
 4. Click **Generate token** and copy it somewhere safe.
+
+### Fine-grained PAT (recommended for solo developers on their own orgs)
+
+Use this if you own (or admin) the org / account that hosts the fork.
+Fine-grained PATs are the GitHub-recommended modern path because they
+scope to specific repos. **One catch:** if the fork lives under an org
+you don't admin, fine-grained PATs require the org admin to enable
+"Allow access via fine-grained personal access tokens" in **Settings →
+Personal access tokens**. Without that, the PAT silently fails with
+`Resource not accessible by integration` even though its permissions
+list looks correct. Workshop attendees should use the classic path
+above instead.
+
+1. Go to <https://github.com/settings/personal-access-tokens>.
+2. Click **"Generate new token"** (fine-grained).
+3. **Repository access:** select your fork.
+4. **Permissions:** `Contents: read/write`, `Pull requests: read/write`,
+   `Workflows: read/write`, `Projects: read/write`, `Metadata: read`.
+5. Click **Generate token** and copy it somewhere safe.
+
+### Where to put the token
+
+- **In a Codespace:** add it as a **Codespaces user secret** named
+  `GH_TOKEN` at <https://github.com/settings/codespaces>. Scope
+  Repository access to your fork. Restart the Codespace if it's
+  already running. (See FAQ: "Why does `/groom-backlog` fail with
+  'Resource not accessible by integration' even though my PAT has the
+  project scope?")
+- **On a local clone:** `gh auth login` and paste the token when
+  prompted, OR set `GH_TOKEN` in your shell rc.
 
 ---
 
