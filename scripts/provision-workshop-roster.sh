@@ -173,6 +173,67 @@ if [[ ! -x "$PROVISION_SCRIPT" ]]; then
   exit 2
 fi
 
+# ── Bot-account collaborator grants (#140) ───────────────────────────────
+#
+# When AGILE_FLOW_WORKER_ACCOUNT or AGILE_FLOW_REVIEWER_ACCOUNT are set
+# (multi-bot mode) and WORKSHOP_ORG is also set, grant push access to
+# each configured bot on every newly-provisioned attendee repo. Without
+# this, /bootstrap-workflow blocks at the first push because the active
+# bot account is read-only on freshly-created attendee repos under
+# vibeacademy/<handle>.
+#
+# Idempotent: skips silently when the bot already has write or higher.
+# Skipped entirely when env vars are unset (solo-mode compatibility).
+# Fail-soft: a single failed grant does NOT abort the roster loop.
+#
+# Requires the bot account to be authenticated locally
+# (`gh auth login --user <bot>` — what setup-accounts.sh sets up). If
+# the bot is not authed, the invite is issued but not accepted; a clear
+# WARN tells the facilitator how to recover manually.
+
+grant_push_to_bot() {
+  local repo="$1" bot="$2"
+
+  # Idempotency check: already a collaborator with write or higher?
+  local current_perm
+  current_perm=$(gh api "repos/$repo/collaborators/$bot/permission" --jq '.permission' 2>/dev/null || echo "none")
+  if [[ "$current_perm" == "write" || "$current_perm" == "admin" || "$current_perm" == "maintain" ]]; then
+    echo "  [skip] $bot already has $current_perm on $repo"
+    return 0
+  fi
+
+  # Issue the invite. Facilitator's gh token must have admin write on the org.
+  if ! gh api -X PUT "repos/$repo/collaborators/$bot" -f permission=push >/dev/null 2>&1; then
+    echo "  WARN: failed to invite $bot to $repo (continuing)"
+    return 1
+  fi
+  echo "  [invite] $bot invited to $repo with push"
+
+  # Accept the invite as the bot. Requires the bot to be authenticated
+  # locally — bot accounts get authed via setup-accounts.sh.
+  local original_user
+  original_user=$(gh api user --jq '.login' 2>/dev/null || echo "")
+
+  if ! gh auth switch --user "$bot" >/dev/null 2>&1; then
+    echo "  WARN: $bot not authenticated locally — invite issued but NOT accepted"
+    echo "        Run 'gh auth login --user $bot' on the facilitator machine, then re-run this script"
+    [[ -n "$original_user" ]] && gh auth switch --user "$original_user" >/dev/null 2>&1
+    return 1
+  fi
+
+  local invite_id
+  invite_id=$(gh api /user/repository_invitations --jq ".[] | select(.repository.full_name == \"$repo\") | .id" 2>/dev/null | head -1)
+  if [[ -n "$invite_id" ]]; then
+    if gh api -X PATCH "/user/repository_invitations/$invite_id" >/dev/null 2>&1; then
+      echo "  [accept] $bot accepted invite to $repo"
+    else
+      echo "  WARN: $bot failed to accept invite $invite_id to $repo"
+    fi
+  fi
+
+  [[ -n "$original_user" ]] && gh auth switch --user "$original_user" >/dev/null 2>&1
+}
+
 # ── CSV header validation ────────────────────────────────────────────────
 #
 # The roster format accepts two header shapes:
@@ -317,6 +378,15 @@ while IFS=',' read -r handle github_user email cohort neon_branch github_full_re
         echo "       The facilitator's gh token must have admin write on the org." >&2
         exit 1
       fi
+    fi
+
+    # Grant push to bot accounts (#140). Skipped silently when env vars
+    # are unset (solo-mode compatibility). Fail-soft per row.
+    if [[ -n "${AGILE_FLOW_WORKER_ACCOUNT:-}" ]]; then
+      grant_push_to_bot "$github_full_repo" "$AGILE_FLOW_WORKER_ACCOUNT" || true
+    fi
+    if [[ -n "${AGILE_FLOW_REVIEWER_ACCOUNT:-}" ]]; then
+      grant_push_to_bot "$github_full_repo" "$AGILE_FLOW_REVIEWER_ACCOUNT" || true
     fi
   fi
 
