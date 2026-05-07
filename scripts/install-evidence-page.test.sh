@@ -144,6 +144,50 @@ EOF
     )
 }
 
+# Build a fork whose main.py has a parenthesized multi-line import — the
+# shape that broke the original import-injection logic on shannon. This
+# test pins the regression: the installer must still produce a
+# syntactically valid file regardless of imports-section shape.
+make_paren_import_fork() {
+    local dir="$1"
+    (
+        cd "$dir" || exit 1
+        git init -q
+        git checkout -q -b feature/install-evidence
+        cat > pyproject.toml <<'EOF'
+[project]
+name = "shannon-shaped"
+version = "0.0.0"
+EOF
+        mkdir -p app/api templates static tests
+        cat > app/main.py <<'EOF'
+"""FastAPI application entrypoint."""
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+from app import (
+    models as _models,  # noqa: F401 — registers SQLModel.metadata
+)
+from app.api import dashboard, flagged, health, scheduler
+
+app = FastAPI(title="Shannon-shaped")
+STATIC_DIR = Path(__file__).parent.parent / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.include_router(health.router)
+app.include_router(scheduler.router)
+app.include_router(flagged.router)
+app.include_router(dashboard.router)
+EOF
+        cat > static/style.css <<'EOF'
+.dashboard { display: grid; }
+EOF
+        git add -A
+        git commit -q -m "init"
+    )
+}
+
 # Build a fork whose main.py has no `app.include_router(...)` anchor.
 # The installer should refuse rather than guess where to inject.
 make_anchorless_fork() {
@@ -258,23 +302,38 @@ make_uv_stub "$t5"
 out5=$(run_installer "$t5" || true)
 assert "test5: refuses without pyproject.toml" "echo \"\$out5\" | grep -qF 'No pyproject.toml'"
 
-# --- Test 6: anchorless main.py — installer aborts before mutating -----
+# --- Test 6: parenthesized multi-line imports (shannon-shape regression) ---
 
-t6=$(new_tmp)
-make_anchorless_fork "$t6"
-make_curl_stub "$t6"
-make_uv_stub "$t6"
-out6=$(run_installer "$t6" || true)
+t6p=$(new_tmp)
+make_paren_import_fork "$t6p"
+make_curl_stub "$t6p"
+make_uv_stub "$t6p"
+out6p=$(run_installer "$t6p")
 
-assert "test6: aborts when no include_router anchor is found" "echo \"\$out6\" | grep -qF 'no injection anchor'"
-assert "test6: prints the manual-install one-liner" "echo \"\$out6\" | grep -qF 'attach_evidence_routes(app)'"
+assert "test6p: installer reports success on paren-import fork" "echo \"\$out6p\" | grep -qF 'Evidence-page runtime installed.'"
+assert "test6p: paren-import main.py preserves the multi-line import" "grep -qF 'models as _models' '$t6p/app/main.py'"
+assert "test6p: paren-import main.py imports the helper" "grep -qF 'from app.evidence_integration import attach_evidence_routes' '$t6p/app/main.py'"
+assert "test6p: paren-import main.py calls the helper" "grep -qF 'attach_evidence_routes(app)' '$t6p/app/main.py'"
+assert "test6p: paren-import main.py has noqa marker on injected import" "grep -qF 'noqa: E402' '$t6p/app/main.py'"
+assert "test6p: paren-import main.py is syntactically valid" "python3 -m py_compile '$t6p/app/main.py' 2>/dev/null"
+
+# --- Test 7: anchorless main.py — installer aborts before mutating -----
+
+t7=$(new_tmp)
+make_anchorless_fork "$t7"
+make_curl_stub "$t7"
+make_uv_stub "$t7"
+out7=$(run_installer "$t7" || true)
+
+assert "test7: aborts when no include_router anchor is found" "echo \"\$out7\" | grep -qF 'no injection anchor'"
+assert "test7: prints the manual-install one-liner" "echo \"\$out7\" | grep -qF 'attach_evidence_routes(app)'"
 # A backup is created right before injection is attempted; that's fine —
 # what matters is that app/main.py itself was not silently corrupted.
-assert "test6: app/main.py left without the helper call" "! grep -qF 'attach_evidence_routes(app)' '$t6/app/main.py'"
+assert "test7: app/main.py left without the helper call" "! grep -qF 'attach_evidence_routes(app)' '$t7/app/main.py'"
 
 # --- Cleanup ---------------------------------------------------------------
 
-rm -rf "$t1" "$t3" "$t4" "$t5" "$t6"
+rm -rf "$t1" "$t3" "$t4" "$t5" "$t6p" "$t7"
 
 echo
 echo "Results: ${PASS} passed, ${FAIL} failed"

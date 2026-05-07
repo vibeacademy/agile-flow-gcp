@@ -19,12 +19,19 @@
 #        - tests/test_evidence.py
 #   4. Appends the evidence-page CSS block to static/style.css (only if
 #      the marker comment is absent).
-#   5. Adds a single-line opt-in to app/main.py:
-#        from app.evidence_integration import attach_evidence_routes
+#   5. Adds a two-line opt-in to app/main.py, immediately after the
+#      last `app.include_router(...)` line:
+#
+#        from app.evidence_integration import attach_evidence_routes  # noqa: E402  isort:skip
 #        attach_evidence_routes(app)
-#      The call is injected after the last `app.include_router(...)`
-#      line. It is preview-only at runtime, so production behavior is
-#      unchanged.
+#
+#      Bottom-of-file placement is intentional: it works regardless of
+#      how the user's imports section is shaped (single-line, multi-line
+#      parenthesized, conditional, etc.) — anything more clever is
+#      fragile and the smoke test (step 6) catches the failure modes.
+#      The noqa comment documents that the late import is on purpose so
+#      ruff/isort don't try to "fix" it. The call is preview-only at
+#      runtime, so production behavior is unchanged.
 #   6. Runs a smoke test (`uv run python -c 'import app.main'`) to
 #      confirm app/main.py still imports cleanly. The installer exits
 #      non-zero if it doesn't — installing into a state that breaks
@@ -157,57 +164,20 @@ else
     fail "Aborted: no injection anchor in app/main.py (backup at ${backup})."
   fi
 
-  # Inject:
-  #   - the import after the existing imports section (before any code)
-  #   - the call after the last include_router line
-  awk -v inject_line="$last_router_line" '
-    BEGIN { import_done = 0 }
-    {
-      print
-      # Insert import once, after the first non-import block ends.
-      # Specifically: after the last "from app." or "import app." line at
-      # the top of the file, the next non-comment, non-blank, non-import
-      # line is where we slot it in. We approximate by injecting just
-      # before the first non-import, non-blank, non-comment line.
-    }
-  ' app/main.py > /dev/null  # placeholder for awk syntax check
-
-  # Build the new file in two passes: first add the call, then add the import.
+  # Append both the import and the call after the last include_router
+  # line. Bottom-of-file placement avoids fragile parsing of the user's
+  # imports section (single-line vs parenthesized vs conditional).
   tmp_main=$(mktemp)
   awk -v inject_line="$last_router_line" '
     { print }
     NR == inject_line {
       print ""
+      print "from app.evidence_integration import attach_evidence_routes  # noqa: E402  isort:skip"
       print "attach_evidence_routes(app)"
     }
   ' app/main.py > "$tmp_main"
 
-  # Add the import. Find a sensible spot: after the last existing
-  # `from app.` or `import` line in the top-of-file imports block. If we
-  # cannot find one, prepend.
-  last_import_line=$(awk '
-    /^(from |import )/ { last = NR }
-    !/^(from |import |#|[[:space:]]*$|""")/ && last { exit }
-    END { print last }
-  ' "$tmp_main")
-
-  tmp_main2=$(mktemp)
-  if [[ -n "$last_import_line" ]]; then
-    awk -v line="$last_import_line" '
-      { print }
-      NR == line {
-        print "from app.evidence_integration import attach_evidence_routes"
-      }
-    ' "$tmp_main" > "$tmp_main2"
-  else
-    {
-      echo "from app.evidence_integration import attach_evidence_routes"
-      cat "$tmp_main"
-    } > "$tmp_main2"
-  fi
-
-  mv "$tmp_main2" app/main.py
-  rm -f "$tmp_main"
+  mv "$tmp_main" app/main.py
   info "injected attach_evidence_routes import + call into app/main.py"
 fi
 
