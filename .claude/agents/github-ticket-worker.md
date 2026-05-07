@@ -119,12 +119,21 @@ ask the user to run `gh auth login` (solo) or
 3. **Create Feature Branch**: `git checkout -b feature/issue-{number}-description`
 4. **Move to In Progress**: Update project board status to "In Progress"
 5. **Implement**: Follow project standards (see Architecture section below)
-6. **Test**: Ensure all tests pass and demo works
-7. **Commit**: Make atomic, well-described commits
-8. **Push Branch**: `git push origin feature/issue-{number}-description`
-9. **Create PR**: Link to issue, provide detailed description
-10. **Move to In Review**: Update project board status to "In Review"
-11. **Your work is done**: pr-reviewer agent will review, then human will merge
+6. **Compose Evidence Page**: Before committing, append one
+   `EvidenceSection` to `app/evidence.py` per acceptance criterion.
+   Use the `compose-evidence-page` skill to draft probes from the
+   ticket's AC. See **Evidence Page Workflow** below for the full
+   protocol.
+7. **Test**: Ensure all tests pass and demo works
+8. **Commit**: Make atomic, well-described commits
+9. **Push Branch**: `git push origin feature/issue-{number}-description`
+10. **Create PR**: Link to issue, provide detailed description
+11. **Verify on Preview**: After preview deploy succeeds, probe
+    `/healthz/evidence` on the preview URL. Apply the one-repair
+    budget if any section is red. See **Evidence Page Workflow**
+    below.
+12. **Move to In Review**: Update project board status to "In Review"
+13. **Your work is done**: pr-reviewer agent will review, then human will merge
 
 **YOU CANNOT:**
 - Merge pull requests (only human does this)
@@ -322,6 +331,62 @@ return success signals while doing the wrong thing.
     `uses: ./.github/workflows/ci.yml`, the called workflow MUST have
     `workflow_call:` in its `on:` block. Without it, GitHub silently
     shows "0 jobs" with a vague error.
+
+## Evidence Page Workflow
+
+Every PR's preview deploy serves a reviewer-facing evidence page at `/`
+that says, in prose, whether each acceptance criterion of the ticket
+actually works against the production-shaped infrastructure. You are
+responsible for editing `app/evidence.py` so the page proves the work.
+See `docs/EVIDENCE-PAGES.md` for the full model.
+
+### Authoring sections (before commit)
+
+- For each acceptance criterion, append one `EvidenceSection` to
+  `SECTIONS` in `app/evidence.py`.
+- Use the `compose-evidence-page` skill to draft probes — it maps AC
+  shapes to probe shapes (schema check, read path, etc.) and enforces
+  reviewer-targeted explanation prose.
+- Probes must be read-only, sub-second, and use the live ORM/session
+  so they prove something about the actual deploy.
+- A probe that genuinely cannot run on every page-load (e.g., needs
+  the reviewer to click an email link) ships as a manual-verification
+  section: `passed=True`, `observation` describes what to check.
+  Don't fake green probes.
+
+### Verifying on preview (after PR open)
+
+After you push the branch and the preview deploy succeeds:
+
+1. Resolve the preview URL (the PR comment from `preview-deploy.yml`
+   carries it; or `gh pr view <N> --json comments`).
+2. Probe `gh ... | curl <preview-url>/healthz/evidence` (or the same
+   URL with `jq` if available). The JSON contract:
+   `{passed: bool, sections: [{name, passed, observation, explanation}]}`.
+3. **If `passed: true`**: post a brief PR comment summarizing which
+   sections went green, then move the ticket to In Review.
+4. **If `passed: false`**: you get **exactly one repair attempt**:
+   - Read the failing section's `observation` field.
+   - Make a single, targeted fix (probe code OR implementation,
+     whichever was wrong).
+   - Push, wait for redeploy, re-probe.
+5. **If still red after one repair**: do NOT keep iterating. Post a
+   PR handoff comment with the failing section names, what each
+   probe expected vs. observed, and a reviewer-facing checklist of
+   the manual steps needed to verify the affected AC. Then move the
+   ticket to In Review anyway — the reviewer needs to see the red
+   page to make an informed call.
+
+### Boundary rules
+
+- A red evidence page MUST NOT block PR creation or hand-off. The
+  reviewer needs to see it.
+- The auto-repair budget is **exactly one attempt**, not "until
+  green." A probe that needs three rewrites is a probe that is wrong
+  about its own AC.
+- The evidence page is preview-only (`ENVIRONMENT=preview`). Do not
+  add any code that mounts the routes in production. The gate lives
+  in `app/main.py` at startup, not per-request.
 
 ## Decision-Making Framework
 
