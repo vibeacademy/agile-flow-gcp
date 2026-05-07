@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Preview verification — {{ "all green" if all_passed else "needs review" }}{% endblock %}
+
+{% block content %}
+<header>
+  <h1>Preview verification</h1>
+  <p>
+    <strong>This page only renders on preview deploys.</strong>
+    Production looks different — see the linked PR for the actual product change.
+    Each section below tells you whether one piece of the work was done
+    correctly. Read the explanation, check the result, and merge when you
+    are satisfied.
+  </p>
+  {% if all_passed %}
+    <p role="status" class="evidence-banner evidence-banner--pass">
+      <strong>All sections pass.</strong>
+      The preview is wired the same way production is, and the change appears
+      to function in that configuration.
+    </p>
+  {% else %}
+    <p role="alert" class="evidence-banner evidence-banner--fail">
+      <strong>One or more sections failed.</strong>
+      Read the failures below before approving — the preview may not match
+      production, or the change may not function in the production
+      configuration.
+    </p>
+  {% endif %}
+</header>
+
+{% for section in sections %}
+<article class="evidence-section evidence-section--{{ 'pass' if section.passed else 'fail' }}">
+  <header>
+    <h2>
+      <span class="evidence-status">{{ "Pass" if section.passed else "Fail" }}</span>
+      {{ section.name }}
+    </h2>
+  </header>
+  <p>{{ section.explanation }}</p>
+  <p><em>What this probe saw:</em> {{ section.observation }}</p>
+</article>
+{% endfor %}
+
+<footer class="evidence-footer">
+  <p>
+    Probes execute live against this revision's database and configuration —
+    they are not cached.
+    Machine-readable results: <a href="/healthz/evidence"><code>/healthz/evidence</code></a>
+  </p>
+</footer>
+{% endblock %}
