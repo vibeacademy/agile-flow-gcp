@@ -101,6 +101,8 @@ platform-specific content differs.
 
 - `UPSTREAM.md` — this file
 - `scripts/provision-gcp-project.sh` — idempotent GCP project bootstrap
+- `.claude/commands/report-upstream.md` — downstream→upstream feedback pipeline; pending PR to upstream so all forks can sync it
+- `docs/FACILITATOR-RUNBOOK.md` — workshop facilitator operational reference; pending PR to upstream
 
 ## Unchanged Files (Should Track Upstream)
 
