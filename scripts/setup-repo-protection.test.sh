@@ -390,6 +390,78 @@ set -e
 assert_eq "1" "$ec" "exit 1 on unknown flag"
 assert_contains "Unknown argument" "$T8/run.log" "names the issue"
 
+# ── Test 9: --approvals 0 applies workshop-mode protection ────────────
+
+echo ""
+echo "Test 9: --approvals 0 applies workshop-mode (0 required reviewers)"
+
+T9=$(new_sandbox)
+make_gh_stub "$T9"
+
+set +e
+env -i \
+    HOME="$T9" \
+    PATH="$T9/bin:/usr/bin:/bin:/usr/local/bin" \
+    STUB_STATE="$T9" \
+    STUB_BRANCH_EXISTS=true \
+    STUB_PROTECTION_STATE=missing \
+    TERM="${TERM:-dumb}" \
+    bash "$SCRIPT" --repo test-org/test-repo --approvals 0 \
+    > "$T9/run.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "exit 0 with --approvals 0"
+assert_contains "0 approving review(s)" "$T9/run.log" "success message shows 0 reviews"
+assert_contains "PUT" "$T9/gh.log" "PUT branch protection called"
+
+# ── Test 10: --approvals 1 (default) is unchanged ────────────────────
+
+echo ""
+echo "Test 10: --approvals 1 (default behavior preserved)"
+
+T10=$(new_sandbox)
+make_gh_stub "$T10"
+
+set +e
+env -i \
+    HOME="$T10" \
+    PATH="$T10/bin:/usr/bin:/bin:/usr/local/bin" \
+    STUB_STATE="$T10" \
+    STUB_BRANCH_EXISTS=true \
+    STUB_PROTECTION_STATE=missing \
+    TERM="${TERM:-dumb}" \
+    bash "$SCRIPT" --repo test-org/test-repo --approvals 1 \
+    > "$T10/run.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "0" "$ec" "exit 0 with --approvals 1"
+assert_contains "1 approving review(s)" "$T10/run.log" "success message shows 1 review"
+assert_contains "PUT" "$T10/gh.log" "PUT branch protection called"
+
+# ── Test 11: --approvals with invalid value rejects ───────────────────
+
+echo ""
+echo "Test 11: --approvals 7 (out of range) → exit 1"
+
+T11=$(new_sandbox)
+make_gh_stub "$T11"
+
+set +e
+env -i \
+    HOME="$T11" \
+    PATH="$T11/bin:/usr/bin:/bin:/usr/local/bin" \
+    STUB_STATE="$T11" \
+    TERM="${TERM:-dumb}" \
+    bash "$SCRIPT" --repo test-org/test-repo --approvals 7 \
+    > "$T11/run.log" 2>&1
+ec=$?
+set -e
+
+assert_eq "1" "$ec" "exit 1 on --approvals 7"
+assert_contains "must be an integer from 0 to 6" "$T11/run.log" "actionable error message"
+
 # ── Summary ──────────────────────────────────────────────────────────
 
 echo ""
