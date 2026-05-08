@@ -60,6 +60,29 @@ jobs:
             echo "neon_configured=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify Neon is configured when GCP deploy is active
+        # Silent-failure guard (#131, #52 class). When ENVIRONMENT=preview is
+        # set in the deployed container, the framework's startup validator
+        # (app/config.py) requires DATABASE_URL to be a postgres:// URL. If
+        # neon_configured is false, no DATABASE_URL is injected, the container
+        # crashes at startup, and Cloud Run reports a generic "container failed
+        # to start" timeout — with no indication that a Neon secret is missing.
+        # Catch it here with a clear message so the developer knows exactly
+        # which secret to add before the deploy even begins.
+        if: steps.check_secrets.outputs.skip != 'true' && steps.check_secrets.outputs.neon_configured != 'true'
+        run: |
+          echo "::error::Preview deploy is configured (GCP_PROJECT_ID is set)"
+          echo "::error::but Neon is NOT configured (NEON_API_KEY is missing"
+          echo "::error::from repo Actions secrets). The deploy would start a"
+          echo "::error::container with no DATABASE_URL, which the framework's"
+          echo "::error::startup validator rejects when ENVIRONMENT=preview."
+          echo "::error::"
+          echo "::error::To fix: add NEON_API_KEY (and NEON_PROJECT_ID) as"
+          echo "::error::repo Actions secrets. See docs/PLATFORM-GUIDE.md for"
+          echo "::error::instructions. Alternatively, remove GCP_PROJECT_ID to"
+          echo "::error::skip preview deploys entirely for this fork."
+          exit 1
+
       - name: Checkout code
         if: steps.check_secrets.outputs.skip != 'true'
         uses: actions/checkout@v4
