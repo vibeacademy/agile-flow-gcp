@@ -76,6 +76,7 @@ print_info()    { echo -e "${BLUE}→ $1${NC}"; }
 REPO=""
 BRANCH="main"
 DRY_RUN=false
+APPROVALS=1
 
 show_help() {
     sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
@@ -88,14 +89,22 @@ while [ $# -gt 0 ]; do
         --branch)      BRANCH="$2"; shift 2 ;;
         --branch=*)    BRANCH="${1#--branch=}"; shift ;;
         --dry-run)     DRY_RUN=true; shift ;;
+        --approvals)   APPROVALS="$2"; shift 2 ;;
+        --approvals=*) APPROVALS="${1#--approvals=}"; shift ;;
         -h|--help)     show_help; exit 0 ;;
         *)
             print_error "Unknown argument: $1"
-            print_info "Usage: setup-repo-protection.sh [--repo owner/name] [--branch main] [--dry-run]"
+            print_info "Usage: setup-repo-protection.sh [--repo owner/name] [--branch main] [--dry-run] [--approvals N]"
             exit 1
             ;;
     esac
 done
+
+# Validate --approvals: must be an integer 0-6 (GitHub's allowed range).
+if ! [[ "$APPROVALS" =~ ^[0-6]$ ]]; then
+    print_error "--approvals must be an integer from 0 to 6 (got: $APPROVALS)"
+    exit 1
+fi
 
 # ───────────────────────────────────────────────────────────────────
 #  Pre-flight
@@ -141,14 +150,14 @@ fi
 #  Format reference:
 #  https://docs.github.com/en/rest/branches/branch-protection?apiVersion=2022-11-28#update-branch-protection
 # ───────────────────────────────────────────────────────────────────
-read -r -d '' PROTECTION_JSON <<'JSON' || true
+PROTECTION_JSON=$(cat <<JSON
 {
   "required_status_checks": null,
   "enforce_admins": false,
   "required_pull_request_reviews": {
     "dismiss_stale_reviews": false,
     "require_code_owner_reviews": false,
-    "required_approving_review_count": 1,
+    "required_approving_review_count": ${APPROVALS},
     "require_last_push_approval": false
   },
   "restrictions": null,
@@ -161,6 +170,7 @@ read -r -d '' PROTECTION_JSON <<'JSON' || true
   "allow_fork_syncing": false
 }
 JSON
+)
 
 # Notes on the chosen settings:
 #
@@ -198,7 +208,7 @@ if [ -n "$current" ]; then
     cur_force=$(echo "$current" | jq -r 'if .allow_force_pushes.enabled == null then "true" else (.allow_force_pushes.enabled | tostring) end')
     cur_delete=$(echo "$current" | jq -r 'if .allow_deletions.enabled == null then "true" else (.allow_deletions.enabled | tostring) end')
 
-    if [ "$cur_pr_reviews" = "1" ] \
+    if [ "$cur_pr_reviews" = "$APPROVALS" ] \
        && [ "$cur_linear" = "true" ] \
        && [ "$cur_force" = "false" ] \
        && [ "$cur_delete" = "false" ]; then
@@ -225,7 +235,7 @@ if echo "$PROTECTION_JSON" | gh api -X PUT \
     "repos/${REPO}/branches/${BRANCH}/protection" \
     --input - >/dev/null 2>&1; then
     print_success "Branch protection applied to ${REPO}:${BRANCH}"
-    print_info "  Reviews required:    1 approving review"
+    print_info "  Reviews required:    ${APPROVALS} approving review(s)"
     print_info "  Status checks:       not required (configure per-cohort)"
     print_info "  Linear history:      required"
     print_info "  Force-push:          blocked"
