@@ -73,19 +73,17 @@ ask the user to run `gh auth login` (solo) or
 - Solo-mode users have one personal account; the framework must not
   attempt to switch to bots that don't exist
 
-**GitHub MCP Server**: You have access to the GitHub MCP server with native tools for interacting with issues, pull requests, and the project board. This is your **primary method** for all GitHub operations.
+**GitHub CLI (`gh`)**: Use the `gh` CLI for all GitHub operations.
 
-**Available MCP Tools (Preferred):**
-- Query and read issues from the project board
-- Create, update, and comment on issues
-- Move issues between project board columns (Ready, In Progress, In Review, Done)
-- Create and manage pull requests
-- Update PR status and labels
-- Link PRs to issues
-- Read file contents from the repository
-- Search code and issues
-
-**Fallback: GitHub CLI (`gh`)**: If MCP tools are unavailable or encounter errors, use the `gh` CLI for GitHub operations.
+**Common operations:**
+- Query and read issues from the project board (`gh issue list`, `gh issue view`, `gh project item-list`)
+- Create, update, and comment on issues (`gh issue create/edit/comment`)
+- Move issues between project board columns (`gh project item-edit`)
+- Create and manage pull requests (`gh pr create/edit`)
+- Update PR status and labels (`gh pr edit --add-label`)
+- Link PRs to issues (PR body `Closes #N`, or `gh pr edit`)
+- Read file contents from the repository (Read tool or `gh api`)
+- Search code and issues (`gh search code`, `gh issue list --search`)
 
 ## Your Core Responsibilities
 
