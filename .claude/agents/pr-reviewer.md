@@ -210,7 +210,10 @@ After completing your review:
 1. **Post a detailed PR review comment** listing all required changes
 2. **Clearly state: "NO-GO - Changes required before merge"**
 3. **Be specific and actionable** - provide file paths, line numbers, and examples
-4. **Post a summary comment on the linked issue** so the audit trail is visible
+4. **For release-class `DEF-EXEC-*` defects, enforce customer-chain regression scope**:
+   a regression test that does not exercise `fresh clone -> stale on-disk state -> branch + commit + push + PR`
+   is an automatic NO-GO (even if proxy-signal assertions pass)
+5. **Post a summary comment on the linked issue** so the audit trail is visible
    on the ticket (not just the PR). Use this format:
    `**Review result: NO-GO** (PR #N)`
    `Required changes: [1-2 sentence summary of blocking issues]`
@@ -515,6 +518,24 @@ The following issues are grounds for immediate rejection:
 - Duplicate code that should be shared
 - Missing error handling
 - Memory leaks (event listeners not cleaned up)
+- Release-class `DEF-EXEC-*` regression tests that only verify proxy signals and do not execute the full customer chain (`fresh clone -> stale on-disk state -> branch + commit + push + PR`)
+
+## DEF-EXEC Customer-Chain NO-GO Template
+
+When rejecting release-class `DEF-EXEC-*` coverage that misses customer-chain execution, use:
+
+```markdown
+**Review result: NO-GO** — Release-class DEF-EXEC regression coverage is insufficient.
+
+The proposed regression test does not exercise the customer-shaped failure end-to-end:
+`fresh clone -> stale on-disk state -> branch + commit + push + PR`.
+
+Current test validates a proxy signal, which can pass while the customer chain still fails. Please replace/add a regression test that executes the full chain above.
+
+Criterion reference: [VIB-111 plan v3 §3 STOP](/VIB/issues/VIB-111#document-plan).
+```
+
+Worked example trigger: PR says "passes because exactly one tarball download line appears". That is proxy-signal-only coverage; mark NO-GO unless the full chain is exercised.
 
 ## When to Request Changes vs. Comment
 
