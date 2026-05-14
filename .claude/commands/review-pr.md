@@ -84,6 +84,38 @@ Any of these findings result in an immediate NO-GO recommendation:
 | Direct commits to main | Process — all changes go through feature branches |
 | Missing tests for new functionality | Quality — untested code is unverifiable |
 | Type errors or unresolved imports | Quality — code does not compile/run correctly |
+| Release-class `DEF-EXEC-*` regression test does not exercise customer chain E2E | Defect safety — proxy-signal tests can pass while the customer failure still reproduces |
+
+### Release-Class DEF-EXEC Regression Criterion (Automatic NO-GO)
+
+For release-class defects in the `DEF-EXEC-*` family, regression coverage is only valid if it exercises the customer-shaped failure end-to-end:
+
+`fresh clone -> stale on-disk state -> branch + commit + push + PR`
+
+If the regression test only asserts a proxy signal (for example, "one tarball download line") and does not execute this chain, mark **NO-GO**.
+
+Reference criterion source: [VIB-111 plan v3 §3 STOP](/VIB/issues/VIB-111#document-plan).
+
+### NO-GO Message Template (DEF-EXEC Customer-Chain Miss)
+
+Use this rejection block when the criterion fails:
+
+```markdown
+**Review result: NO-GO** — Release-class DEF-EXEC regression coverage is insufficient.
+
+The proposed regression test does not exercise the customer-shaped failure end-to-end:
+`fresh clone -> stale on-disk state -> branch + commit + push + PR`.
+
+Current test validates a proxy signal, which can pass while the customer chain still fails. Please replace/add a regression test that executes the full chain above.
+
+Criterion reference: [VIB-111 plan v3 §3 STOP](/VIB/issues/VIB-111#document-plan).
+```
+
+### Worked Example (Proxy-Signal-Only Test)
+
+Hypothetical PR claim: "Regression test passes because output includes exactly one tarball download line."
+
+Reviewer outcome: **NO-GO**, because the assertion validates a proxy log signal but never runs the full customer chain (`fresh clone -> stale on-disk state -> branch + commit + push + PR`).
 
 ### When to Request Changes vs Comment
 
