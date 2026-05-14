@@ -3,6 +3,7 @@
 # Called by .github/workflows/template-sync.yml (workflow_dispatch only).
 # Guardrails:
 #   - Only syncs directories/files listed in syncDirectories (.agile-flow-version)
+#   - Skips paths listed in .agile-flow-overrides
 #   - Does NOT auto-merge; PR requires human review
 #   - Uses unauthenticated GitHub API to fetch release metadata
 
@@ -10,6 +11,7 @@ set -euo pipefail
 
 UPSTREAM_REPO="vibeacademy/agile-flow"
 VERSION_FILE=".agile-flow-version"
+OVERRIDES_FILE=".agile-flow-overrides"
 
 ###############################################################################
 # 1. Read local version and syncDirectories
@@ -28,6 +30,16 @@ print('\n'.join(dirs))
 
 echo "Local version : $LOCAL_VERSION"
 echo "Sync targets  : $SYNC_DIRS"
+
+# Load overrides (one path per line, comments supported)
+declare -A OVERRIDE_MAP
+if [ -f "$OVERRIDES_FILE" ]; then
+  while IFS= read -r line; do
+    [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+    OVERRIDE_MAP["$line"]=1
+  done < "$OVERRIDES_FILE"
+fi
+echo "Override paths: ${#OVERRIDE_MAP[@]}"
 
 ###############################################################################
 # 2. Fetch latest release from GitHub (unauthenticated)
@@ -106,6 +118,7 @@ echo "Created rollback tag: $ROLLBACK_TAG (local-only)"
 # 6. Sync each directory/file from syncDirectories
 ###############################################################################
 FILES_CHANGED=()
+FILES_SKIPPED_OVERRIDE=()
 
 while IFS= read -r sync_path; do
   [ -z "$sync_path" ] && continue
@@ -123,6 +136,12 @@ while IFS= read -r sync_path; do
       rel_file="${file#"$upstream_path"/}"
       local_file="$sync_path/$rel_file"
       upstream_file="$file"
+
+      if [[ -n "${OVERRIDE_MAP[$local_file]+_}" ]]; then
+        FILES_SKIPPED_OVERRIDE+=("$local_file")
+        echo "SKIP (override): $local_file"
+        continue
+      fi
 
       # Create parent directory if needed
       mkdir -p "$(dirname "$local_file")"
@@ -143,6 +162,12 @@ while IFS= read -r sync_path; do
     done < <(find "$upstream_path" -type f)
   else
     # Single file sync
+    if [[ -n "${OVERRIDE_MAP[$sync_path]+_}" ]]; then
+      FILES_SKIPPED_OVERRIDE+=("$sync_path")
+      echo "SKIP (override): $sync_path"
+      continue
+    fi
+
     if [ -f "$sync_path" ]; then
       if ! diff -q "$upstream_path" "$sync_path" >/dev/null 2>&1; then
         cp "$upstream_path" "$sync_path"
@@ -170,6 +195,9 @@ rm -rf "$WORK_DIR"
 ###############################################################################
 if [ ${#FILES_CHANGED[@]} -eq 0 ]; then
   echo "Already up to date. All synced files match the latest release."
+  if [ ${#FILES_SKIPPED_OVERRIDE[@]} -gt 0 ]; then
+    echo "Skipped overrides: ${#FILES_SKIPPED_OVERRIDE[@]}"
+  fi
   exit 0
 fi
 
