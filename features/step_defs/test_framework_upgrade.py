@@ -22,11 +22,7 @@ def given_valid_version_file(temp_project_dir, context):
     version_data = {
         "version": "1.0.0",
         "upstream": "vibeacademy/agile-flow-gcp",
-        "syncDirectories": [
-            "scripts/",
-            ".github/workflows/",
-            "docs/"
-        ]
+        "syncDirectories": ["scripts/", ".github/workflows/", "docs/"],
     }
     version_file.write_text(json.dumps(version_data, indent=2))
     context["current_version"] = "1.0.0"
@@ -66,7 +62,7 @@ def given_matching_files_upstream(context):
     context["files_to_sync"] = [
         "scripts/template-sync.sh",
         ".github/workflows/deploy.yml",
-        "docs/README.md"
+        "docs/README.md",
     ]
 
 
@@ -94,9 +90,10 @@ def given_upstream_unreachable(context):
 def when_sync_script_runs(temp_project_dir, mock_subprocess, mock_gh_cli, context):
     """Run the template sync script with appropriate mocking."""
 
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
-            if isinstance(cmd, list) and 'template-sync.sh' in str(cmd):
+            if isinstance(cmd, list) and "template-sync.sh" in str(cmd):
                 result = MagicMock()
 
                 if not context.get("upstream_reachable", True):
@@ -135,8 +132,8 @@ def when_sync_script_runs(temp_project_dir, mock_subprocess, mock_gh_cli, contex
                     context["pr_created"] = True
                     return result
 
-            elif isinstance(cmd, list) and cmd[0] == 'gh':
-                if 'release' in cmd and 'view' in cmd:
+            elif isinstance(cmd, list) and cmd[0] == "gh":
+                if "release" in cmd and "view" in cmd:
                     # Mock release info
                     result = MagicMock()
                     result.returncode = 0
@@ -145,7 +142,7 @@ def when_sync_script_runs(temp_project_dir, mock_subprocess, mock_gh_cli, contex
                         '"tarball_url": "https://github.com/test/repo/archive/v1.1.0.tar.gz"}}'
                     )
                     return result
-                elif 'pr' in cmd and 'create' in cmd:
+                elif "pr" in cmd and "create" in cmd:
                     # Mock PR creation
                     result = MagicMock()
                     result.returncode = 0
@@ -159,9 +156,7 @@ def when_sync_script_runs(temp_project_dir, mock_subprocess, mock_gh_cli, contex
 
         # Simulate running the sync script
         result = subprocess.run(
-            ["bash", "scripts/template-sync.sh"],
-            capture_output=True,
-            text=True
+            ["bash", "scripts/template-sync.sh"], capture_output=True, text=True
         )
         context["sync_result"] = result
 
@@ -240,8 +235,9 @@ def then_update_version_file(temp_project_dir, context):
         assert version_file.exists()
 
 
-@then('it should commit changes with message "chore(sync): update Agile Flow '
-      'framework to v{version}"')
+@then(
+    'it should commit changes with message "chore(sync): update Agile Flow framework to v{version}"'
+)
 def then_commit_changes(context):
     """Verify commit with proper message."""
     if context.get("pr_created"):

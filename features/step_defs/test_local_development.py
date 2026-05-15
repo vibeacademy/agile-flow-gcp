@@ -92,28 +92,26 @@ def given_in_project_root(temp_project_dir, context):
 @when('I run "uv sync --extra dev"')
 def when_run_uv_sync(mock_subprocess, context):
     """Run uv sync command."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = "Resolved 55 packages in 663ms\nInstalled 55 packages\n"
         mock_run.return_value = result
 
         context["uv_sync_result"] = subprocess.run(
-            ["uv", "sync", "--extra", "dev"],
-            capture_output=True,
-            text=True
+            ["uv", "sync", "--extra", "dev"], capture_output=True, text=True
         )
 
 
 @when('I run "uv run uvicorn app.main:app --reload --port 8080"')
 def when_run_uvicorn(mock_uvicorn, context):
     """Start the development server."""
-    with patch('subprocess.Popen') as mock_popen:
+    with patch("subprocess.Popen") as mock_popen:
         mock_process = MagicMock()
         mock_process.poll.return_value = None  # Still running
         mock_process.communicate.return_value = (
             b"INFO:     Uvicorn running on http://127.0.0.1:8080 (Press CTRL+C to quit)\n",
-            b""
+            b"",
         )
         mock_popen.return_value = mock_process
 
@@ -121,78 +119,70 @@ def when_run_uvicorn(mock_uvicorn, context):
         context["uvicorn_process"] = subprocess.Popen(
             ["uv", "run", "uvicorn", "app.main:app", "--reload", "--port", "8080"],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,
         )
 
 
 @when('I run the lint command "uv run ruff check ."')
 def when_run_lint(mock_subprocess, context):
     """Run lint command."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = "All checks passed!"
         mock_run.return_value = result
 
         context["lint_result"] = subprocess.run(
-            ["uv", "run", "ruff", "check", "."],
-            capture_output=True,
-            text=True
+            ["uv", "run", "ruff", "check", "."], capture_output=True, text=True
         )
 
 
 @when('I run the format command "uv run ruff format ."')
 def when_run_format(mock_subprocess, context):
     """Run format command."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = "2 files reformatted"
         mock_run.return_value = result
 
         context["format_result"] = subprocess.run(
-            ["uv", "run", "ruff", "format", "."],
-            capture_output=True,
-            text=True
+            ["uv", "run", "ruff", "format", "."], capture_output=True, text=True
         )
 
 
 @when('I run the type check command "uv run mypy app/"')
 def when_run_mypy(mock_subprocess, context):
     """Run type checking."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = "Success: no issues found in 5 source files"
         mock_run.return_value = result
 
         context["mypy_result"] = subprocess.run(
-            ["uv", "run", "mypy", "app/"],
-            capture_output=True,
-            text=True
+            ["uv", "run", "mypy", "app/"], capture_output=True, text=True
         )
 
 
 @when('I run "uv run pytest"')
 def when_run_pytest(mock_subprocess, context):
     """Run test suite."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = "=== 5 passed in 0.12s ==="
         mock_run.return_value = result
 
         context["pytest_result"] = subprocess.run(
-            ["uv", "run", "pytest"],
-            capture_output=True,
-            text=True
+            ["uv", "run", "pytest"], capture_output=True, text=True
         )
 
 
 @when('I run "uv run pytest --cov=app --cov-report=term-missing"')
 def when_run_pytest_coverage(mock_subprocess, context):
     """Run test suite with coverage."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = """=== 5 passed in 0.12s ===
@@ -204,33 +194,30 @@ Total coverage: 95%"""
         context["pytest_coverage_result"] = subprocess.run(
             ["uv", "run", "pytest", "--cov=app", "--cov-report=term-missing"],
             capture_output=True,
-            text=True
+            text=True,
         )
 
 
 @when('I run "uv run alembic upgrade head"')
 def when_run_alembic_upgrade(mock_subprocess, context):
     """Run database migrations."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = (
-            "INFO  [alembic.runtime.migration] "
-            "Running upgrade -> abc123, Initial migration"
+            "INFO  [alembic.runtime.migration] Running upgrade -> abc123, Initial migration"
         )
         mock_run.return_value = result
 
         context["alembic_upgrade_result"] = subprocess.run(
-            ["uv", "run", "alembic", "upgrade", "head"],
-            capture_output=True,
-            text=True
+            ["uv", "run", "alembic", "upgrade", "head"], capture_output=True, text=True
         )
 
 
-@when('I run "uv run alembic revision --autogenerate -m \'Add new feature\'"')
+@when("I run \"uv run alembic revision --autogenerate -m 'Add new feature'\"")
 def when_run_alembic_revision(temp_project_dir, mock_subprocess, context):
     """Create new database migration."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = (
@@ -264,14 +251,14 @@ def downgrade():
         context["alembic_revision_result"] = subprocess.run(
             ["uv", "run", "alembic", "revision", "--autogenerate", "-m", "Add new feature"],
             capture_output=True,
-            text=True
+            text=True,
         )
 
 
 @when('I run "docker build -t agile-flow-app ."')
 def when_run_docker_build(mock_docker, context):
     """Build Docker container."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
         result = MagicMock()
         result.returncode = 0
         result.stdout = """Sending build context to Docker daemon
@@ -282,9 +269,7 @@ Successfully tagged agile-flow-app:latest"""
         mock_run.return_value = result
 
         context["docker_build_result"] = subprocess.run(
-            ["docker", "build", "-t", "agile-flow-app", "."],
-            capture_output=True,
-            text=True
+            ["docker", "build", "-t", "agile-flow-app", "."], capture_output=True, text=True
         )
 
 
@@ -324,9 +309,17 @@ def then_see_resolved_packages(context):
 def then_command_success(context):
     """Verify command completed successfully."""
     # Check any recent command result
-    for key in ["uv_sync_result", "lint_result", "format_result", "mypy_result",
-                "pytest_result", "pytest_coverage_result", "alembic_upgrade_result",
-                "alembic_revision_result", "docker_build_result"]:
+    for key in [
+        "uv_sync_result",
+        "lint_result",
+        "format_result",
+        "mypy_result",
+        "pytest_result",
+        "pytest_coverage_result",
+        "alembic_upgrade_result",
+        "alembic_revision_result",
+        "docker_build_result",
+    ]:
         result = context.get(key)
         if result is not None:
             assert result.returncode == 0

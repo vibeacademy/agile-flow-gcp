@@ -86,7 +86,8 @@ exit 0
 @when('I run "bash scripts/setup-solo-mode.sh"')
 def when_run_solo_mode_setup(temp_project_dir, mock_subprocess, context):
     """Run the solo mode setup script."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
             if isinstance(cmd, list) and "setup-solo-mode.sh" in str(cmd):
                 result = MagicMock()
@@ -100,9 +101,7 @@ def when_run_solo_mode_setup(temp_project_dir, mock_subprocess, context):
 
         # Simulate running the script
         result = subprocess.run(
-            ["bash", "scripts/setup-solo-mode.sh"],
-            capture_output=True,
-            text=True
+            ["bash", "scripts/setup-solo-mode.sh"], capture_output=True, text=True
         )
         context["setup_result"] = result
         context["setup_output"] = "solo mode is configured"  # Ensure output is set
@@ -111,7 +110,8 @@ def when_run_solo_mode_setup(temp_project_dir, mock_subprocess, context):
 @when('I run "bash bootstrap.sh"')
 def when_run_bootstrap(temp_project_dir, mock_subprocess, context):
     """Run the bootstrap wizard."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
             if isinstance(cmd, list) and "bootstrap.sh" in str(cmd):
                 result = MagicMock()
@@ -128,11 +128,7 @@ Phase 4: Project Board - COMPLETE"""
 
         mock_run.side_effect = side_effect
 
-        result = subprocess.run(
-            ["bash", "bootstrap.sh"],
-            capture_output=True,
-            text=True
-        )
+        result = subprocess.run(["bash", "bootstrap.sh"], capture_output=True, text=True)
         context["bootstrap_result"] = result
         # Ensure output is set
         context["bootstrap_output"] = """Agile Flow Bootstrap Wizard
@@ -158,9 +154,10 @@ def when_create_bad_commit(temp_project_dir, context):
 @when("I attempt to push the changes")
 def when_attempt_push(temp_project_dir, mock_git, context):
     """Attempt to push changes (will be caught by pre-push hook)."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
-            if isinstance(cmd, list) and cmd[0] == 'git' and 'push' in cmd:
+            if isinstance(cmd, list) and cmd[0] == "git" and "push" in cmd:
                 # Simulate pre-push hook running and failing
                 result = MagicMock()
                 result.returncode = 1
@@ -171,11 +168,7 @@ def when_attempt_push(temp_project_dir, mock_git, context):
 
         mock_run.side_effect = side_effect
 
-        result = subprocess.run(
-            ["git", "push", "origin", "main"],
-            capture_output=True,
-            text=True
-        )
+        result = subprocess.run(["git", "push", "origin", "main"], capture_output=True, text=True)
         context["push_result"] = result
 
 

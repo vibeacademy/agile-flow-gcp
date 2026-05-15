@@ -149,32 +149,33 @@ def when_push_to_main(mock_gcloud, mock_docker, context):
         context["deployment_completed"] = False
         return
 
-    with patch('subprocess.run') as mock_run:
-        def side_effect(cmd, *args, **kwargs):
-            cmd_str = ' '.join(cmd) if isinstance(cmd, list) else cmd
+    with patch("subprocess.run") as mock_run:
 
-            if 'gcloud auth' in cmd_str:
+        def side_effect(cmd, *args, **kwargs):
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else cmd
+
+            if "gcloud auth" in cmd_str:
                 result = MagicMock()
                 result.returncode = 0
                 result.stdout = "Authenticated successfully"
                 return result
-            elif 'gcloud run deploy' in cmd_str:
+            elif "gcloud run deploy" in cmd_str:
                 result = MagicMock()
                 result.returncode = 0
                 result.stdout = "Service URL: https://app-test-project-123.run.app"
                 context["service_url"] = "https://app-test-project-123.run.app"
                 return result
-            elif 'docker build' in cmd_str:
+            elif "docker build" in cmd_str:
                 result = MagicMock()
                 result.returncode = 0
                 result.stdout = "Successfully built and tagged image"
                 return result
-            elif 'docker push' in cmd_str:
+            elif "docker push" in cmd_str:
                 result = MagicMock()
                 result.returncode = 0
                 result.stdout = "Image pushed to registry"
                 return result
-            elif 'alembic upgrade' in cmd_str:
+            elif "alembic upgrade" in cmd_str:
                 result = MagicMock()
                 result.returncode = 0
                 result.stdout = "Database migrations completed"
@@ -208,9 +209,7 @@ def when_template_sync_runs(context):
 def when_deploy_calls_ci(context):
     """Mock deployment workflow calling CI workflow."""
     context["ci_called"] = True
-    context["ci_jobs_run"] = [
-        "lint", "typecheck", "build", "test", "actionlint", "python"
-    ]
+    context["ci_jobs_run"] = ["lint", "typecheck", "build", "test", "actionlint", "python"]
 
 
 @when("a new deployment completes successfully")

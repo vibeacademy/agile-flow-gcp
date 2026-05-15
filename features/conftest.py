@@ -13,7 +13,7 @@ pytest_plugins = [
     "step_defs.test_deployment_pipeline",
     "step_defs.test_local_development",
     "step_defs.test_framework_upgrade",
-    "step_defs.test_framework_bootstrap"
+    "step_defs.test_framework_bootstrap",
 ]
 
 
@@ -117,10 +117,11 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
 @pytest.fixture
 def mock_subprocess():
     """Mock subprocess calls to avoid actual command execution."""
-    with patch('subprocess.run') as mock_run, \
-         patch('subprocess.check_output') as mock_check_output, \
-         patch('subprocess.Popen') as mock_popen:
-
+    with (
+        patch("subprocess.run") as mock_run,
+        patch("subprocess.check_output") as mock_check_output,
+        patch("subprocess.Popen") as mock_popen,
+    ):
         # Default successful responses
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         mock_check_output.return_value = b"mocked output"
@@ -130,30 +131,27 @@ def mock_subprocess():
         mock_process.returncode = 0
         mock_popen.return_value = mock_process
 
-        yield {
-            'run': mock_run,
-            'check_output': mock_check_output,
-            'popen': mock_popen
-        }
+        yield {"run": mock_run, "check_output": mock_check_output, "popen": mock_popen}
 
 
 @pytest.fixture
 def mock_git():
     """Mock git commands."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
-            if isinstance(cmd, list) and cmd[0] == 'git':
-                if 'status' in cmd:
+            if isinstance(cmd, list) and cmd[0] == "git":
+                if "status" in cmd:
                     result = MagicMock()
                     result.returncode = 0
                     result.stdout = "On branch main\nnothing to commit, working tree clean"
                     return result
-                elif 'remote' in cmd and 'get-url' in cmd:
+                elif "remote" in cmd and "get-url" in cmd:
                     result = MagicMock()
                     result.returncode = 0
                     result.stdout = "https://github.com/user/repo.git"
                     return result
-                elif 'config' in cmd:
+                elif "config" in cmd:
                     result = MagicMock()
                     result.returncode = 0
                     result.stdout = ""
@@ -172,20 +170,21 @@ def mock_git():
 @pytest.fixture
 def mock_gh_cli():
     """Mock GitHub CLI commands."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
-            if isinstance(cmd, list) and cmd[0] == 'gh':
-                if 'auth' in cmd and 'token' in cmd:
+            if isinstance(cmd, list) and cmd[0] == "gh":
+                if "auth" in cmd and "token" in cmd:
                     result = MagicMock()
                     result.returncode = 0
                     result.stdout = "gho_test_token"
                     return result
-                elif 'api' in cmd:
+                elif "api" in cmd:
                     result = MagicMock()
                     result.returncode = 0
                     result.stdout = '{"scopes": ["repo", "project", "workflow", "read:project"]}'
                     return result
-                elif 'repo' in cmd and 'view' in cmd:
+                elif "repo" in cmd and "view" in cmd:
                     result = MagicMock()
                     result.returncode = 0
                     result.stdout = "Repository info"
@@ -204,9 +203,10 @@ def mock_gh_cli():
 @pytest.fixture
 def mock_gcloud():
     """Mock gcloud commands."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
-            if isinstance(cmd, list) and cmd[0] == 'gcloud':
+            if isinstance(cmd, list) and cmd[0] == "gcloud":
                 result = MagicMock()
                 result.returncode = 0
                 result.stdout = "Mocked gcloud output"
@@ -225,15 +225,16 @@ def mock_gcloud():
 @pytest.fixture
 def mock_docker():
     """Mock Docker commands."""
-    with patch('subprocess.run') as mock_run:
+    with patch("subprocess.run") as mock_run:
+
         def side_effect(cmd, *args, **kwargs):
-            if isinstance(cmd, list) and cmd[0] == 'docker':
-                if 'build' in cmd:
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if "build" in cmd:
                     result = MagicMock()
                     result.returncode = 0
                     result.stdout = "Successfully built image"
                     return result
-                elif 'push' in cmd:
+                elif "push" in cmd:
                     result = MagicMock()
                     result.returncode = 0
                     result.stdout = "Image pushed successfully"
@@ -252,12 +253,12 @@ def mock_docker():
 @pytest.fixture
 def mock_uvicorn():
     """Mock uvicorn server startup."""
-    with patch('subprocess.Popen') as mock_popen:
+    with patch("subprocess.Popen") as mock_popen:
         mock_process = MagicMock()
         mock_process.poll.return_value = None  # Still running
         mock_process.communicate.return_value = (
             b"INFO:     Uvicorn running on http://127.0.0.1:8080 (Press CTRL+C to quit)\n",
-            b""
+            b"",
         )
         mock_popen.return_value = mock_process
         yield mock_popen
