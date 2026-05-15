@@ -1,7 +1,6 @@
 """BDD tests for deployment pipeline."""
 
 from pytest_bdd import scenario
-from step_defs.test_deployment_pipeline import *  # Import all step definitions
 
 
 # Define the scenarios

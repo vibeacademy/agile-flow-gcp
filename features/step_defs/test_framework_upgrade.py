@@ -4,14 +4,7 @@ import json
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from pytest_bdd import given, scenario, then, when
-
-# Scenarios
-scenario("../framework_upgrade.feature", "No updates available")
-scenario("../framework_upgrade.feature", "Update available and sync succeeds")
-scenario("../framework_upgrade.feature", "Sync with no file changes")
-scenario("../framework_upgrade.feature", "Branch already exists for version")
-scenario("../framework_upgrade.feature", "Upstream repository is unreachable")
+from pytest_bdd import given, then, when
 
 
 # Given steps

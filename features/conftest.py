@@ -8,6 +8,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Explicitly register step definition modules with pytest
+pytest_plugins = [
+    "step_defs.test_deployment_pipeline",
+    "step_defs.test_local_development", 
+    "step_defs.test_framework_upgrade",
+    "step_defs.test_framework_bootstrap"
+]
+
 
 @pytest.fixture
 def temp_project_dir() -> Generator[Path, None, None]:

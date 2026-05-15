@@ -3,18 +3,7 @@
 import os
 from unittest.mock import MagicMock, patch
 
-from pytest_bdd import given, scenario, then, when
-
-# Scenarios
-scenario("../deployment_pipeline.feature", "Deploy with Workload Identity Federation")
-scenario("../deployment_pipeline.feature", "Deploy with Service Account Key fallback")
-scenario("../deployment_pipeline.feature", "Skip deployment when secrets are missing")
-scenario("../deployment_pipeline.feature", "Skip deployment on upstream template repository")
-scenario("../deployment_pipeline.feature", "Database migration runs before deployment")
-scenario("../deployment_pipeline.feature", "Skip migrations when database URL not configured")
-scenario("../deployment_pipeline.feature", "Cloud Run service configuration is applied correctly")
-scenario("../deployment_pipeline.feature", "Traffic routing updates after deployment")
-scenario("../deployment_pipeline.feature", "CI checks run before deployment (via workflow_call)")
+from pytest_bdd import given, then, when
 
 
 # Given steps

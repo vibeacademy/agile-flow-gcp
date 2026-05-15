@@ -22,7 +22,7 @@ Feature: Local Development Environment
     Given dependencies are installed via uv sync
     When I run "uv run uvicorn app.main:app --reload --port 8080"
     Then the FastAPI application should start
-    And it should listen on port 8080
+    And the development server should listen on port 8080
     And it should enable auto-reload for code changes
     And I should see "Uvicorn running on http://127.0.0.1:8080" in the output
     And the application should respond to HTTP requests on localhost:8080

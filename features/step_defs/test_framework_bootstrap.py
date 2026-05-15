@@ -4,12 +4,7 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from pytest_bdd import given, scenario, then, when
-
-# Scenarios
-scenario("../framework_bootstrap.feature", "Solo mode setup completes successfully")
-scenario("../framework_bootstrap.feature", "Bootstrap wizard runs all phases")
-scenario("../framework_bootstrap.feature", "Pre-push hook prevents bad commits")
+from pytest_bdd import given, then, when
 
 
 # Given steps

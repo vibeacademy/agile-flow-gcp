@@ -1,7 +1,6 @@
-"""BDD tests for framework upgrade."""
+"""BDD tests for framework upgrade workflow."""
 
 from pytest_bdd import scenario
-from step_defs.test_framework_upgrade import *  # Import all step definitions
 
 
 # Define the scenarios

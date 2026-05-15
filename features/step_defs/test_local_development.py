@@ -4,17 +4,7 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from pytest_bdd import given, scenario, then, when
-
-# Scenarios
-scenario("../local_development.feature", "Install development dependencies")
-scenario("../local_development.feature", "Start local development server")
-scenario("../local_development.feature", "Run code quality checks")
-scenario("../local_development.feature", "Run test suite")
-scenario("../local_development.feature", "Run test suite with coverage reporting")
-scenario("../local_development.feature", "Run database migrations")
-scenario("../local_development.feature", "Create new database migration")
-scenario("../local_development.feature", "Build container image locally")
+from pytest_bdd import given, then, when
 
 
 # Given steps
@@ -350,7 +340,7 @@ def then_fastapi_starts(context):
     assert process is not None
 
 
-@then("it should listen on port 8080")
+@then("the development server should listen on port 8080")
 def then_listen_on_port_8080(context):
     """Verify server listens on correct port."""
     process = context.get("uvicorn_process")
