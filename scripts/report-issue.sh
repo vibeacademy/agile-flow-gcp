@@ -4,13 +4,52 @@
 # Usage:
 #   bash scripts/report-issue.sh
 #   bash scripts/report-issue.sh --severity p2 --component provisioning --title "short title"
-#   bash scripts/report-issue.sh --non-interactive --severity p3 --component docs --title "typo in guide"
+#   bash scripts/report-issue.sh --non-interactive --severity p3 --component docs --title "typo in guide" --body-file issue-description.txt
+#   bash scripts/report-issue.sh --non-interactive --severity p2 --component ci --title "build fails" --body "The build process fails on step 3"
 #
 # Exit codes:
 #   0  — report filed successfully (or saved for manual submission via fallback)
 #   1  — error (missing config, invalid inputs)
 
 set -euo pipefail
+
+# ── Help function ──────────────────────────────────────────────────────────────
+
+show_help() {
+  cat <<'HELP'
+report-issue.sh — Report a downstream issue to the upstream Agile Flow repo.
+
+Usage:
+  bash scripts/report-issue.sh [OPTIONS]
+
+Options:
+  --severity LEVEL        Issue severity: p1 (critical), p2 (high), p3 (low)
+  --component NAME        Component: provisioning, ci, claude-commands, patterns, docs, other
+  --title TEXT            Short title describing the problem
+  --body TEXT             Issue body content (inline text)
+  --body-file FILE        Path to file containing issue body content
+  --non-interactive       Run without prompts (requires all parameters)
+  --help                  Show this help message
+
+Examples:
+  # Interactive mode (default)
+  bash scripts/report-issue.sh
+
+  # Non-interactive with inline body
+  bash scripts/report-issue.sh --non-interactive --severity p2 --component ci \
+    --title "Build fails on step 3" --body "The build process consistently fails..."
+
+  # Non-interactive with body file
+  bash scripts/report-issue.sh --non-interactive --severity p1 --component provisioning \
+    --title "Setup script crashes" --body-file issue-description.txt
+
+Exit codes:
+  0 — report filed successfully (or saved for manual submission via fallback)  
+  1 — error (missing config, invalid inputs)
+
+Note: In non-interactive mode, you must provide either --body or --body-file for the issue description.
+HELP
+}
 
 META_DIR=".agile-flow-meta"
 REPORTS_DIR="$META_DIR/reports"
@@ -20,6 +59,8 @@ REPORTS_DIR="$META_DIR/reports"
 SEVERITY=""
 COMPONENT=""
 TITLE=""
+BODY=""
+BODY_FILE=""
 NON_INTERACTIVE=false
 
 while [[ $# -gt 0 ]]; do
@@ -27,10 +68,42 @@ while [[ $# -gt 0 ]]; do
     --severity)        SEVERITY="$2";       shift 2 ;;
     --component)       COMPONENT="$2";      shift 2 ;;
     --title)           TITLE="$2";          shift 2 ;;
+    --body)            BODY="$2";           shift 2 ;;
+    --body-file)       BODY_FILE="$2";      shift 2 ;;
     --non-interactive) NON_INTERACTIVE=true; shift ;;
+    --help)            show_help; exit 0 ;;
     *) echo "ERROR: Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
+
+# ── Validate body source for non-interactive mode ─────────────────────────────
+
+if $NON_INTERACTIVE; then
+  # Check that either --body or --body-file is provided
+  if [ -z "$BODY" ] && [ -z "$BODY_FILE" ]; then
+    echo "ERROR: --non-interactive mode requires either --body or --body-file for issue description." >&2
+    echo "Use --help for usage examples." >&2
+    exit 1
+  fi
+  
+  # Check that both aren't provided at the same time
+  if [ -n "$BODY" ] && [ -n "$BODY_FILE" ]; then
+    echo "ERROR: Cannot specify both --body and --body-file. Choose one." >&2
+    exit 1
+  fi
+  
+  # If --body-file is provided, validate the file exists and is readable
+  if [ -n "$BODY_FILE" ]; then
+    if [ ! -f "$BODY_FILE" ]; then
+      echo "ERROR: Body file not found: $BODY_FILE" >&2
+      exit 1
+    fi
+    if [ ! -r "$BODY_FILE" ]; then
+      echo "ERROR: Body file is not readable: $BODY_FILE" >&2
+      exit 1
+    fi
+  fi
+fi
 
 # ── Verify .agile-flow-meta/ exists ──────────────────────────────────────────
 
@@ -166,7 +239,16 @@ SAFE_TITLE="${SAFE_TITLE//\"/\\\"}"
 DESCRIPTION_FILE=$(mktemp /tmp/agile-flow-report-XXXXXX.md)
 trap 'rm -f "$DESCRIPTION_FILE"' EXIT
 
-cat > "$DESCRIPTION_FILE" <<'TEMPLATE'
+# Handle body content based on provided flags
+if [ -n "$BODY_FILE" ]; then
+  # Use content from provided file
+  cp "$BODY_FILE" "$DESCRIPTION_FILE"
+elif [ -n "$BODY" ]; then
+  # Use inline body content
+  printf '%s' "$BODY" > "$DESCRIPTION_FILE"
+elif ! $NON_INTERACTIVE; then
+  # Interactive mode: provide template and let user edit
+  cat > "$DESCRIPTION_FILE" <<'TEMPLATE'
 ## Description
 
 <!-- What is the problem? Be specific. -->
@@ -197,7 +279,6 @@ cat > "$DESCRIPTION_FILE" <<'TEMPLATE'
 - Track:
 TEMPLATE
 
-if ! $NON_INTERACTIVE; then
   EDITOR="${EDITOR:-}"
   if [ -n "$EDITOR" ] && command -v "$EDITOR" >/dev/null 2>&1; then
     echo ""
@@ -216,6 +297,10 @@ if ! $NON_INTERACTIVE; then
     done
     printf '%s' "$DESC_LINES" > "$DESCRIPTION_FILE"
   fi
+else
+  # This should never happen due to earlier validation, but just in case
+  echo "ERROR: No body content provided for non-interactive mode." >&2
+  exit 1
 fi
 
 DESCRIPTION=$(cat "$DESCRIPTION_FILE")
